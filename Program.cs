@@ -623,7 +623,10 @@ static async Task<string> BuildCommentMessage(
         String(data, "comment") ??
         String(data, "body") ??
         String(data, "content"));
+        
     comment = PmsMentionExtractor.NeutralizeBroadcastMentions(comment);
+    comment = PmsMentionExtractor.ReplaceTeamMention(comment);
+
     var originalCommentForExtraction = comment;
     var structuredMentions = mentionExtractor.StructuredCommentMentions(data);
     var mentionedUsers = structuredMentions.Count > 0

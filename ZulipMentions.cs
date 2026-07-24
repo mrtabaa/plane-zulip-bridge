@@ -536,6 +536,23 @@ internal sealed class PmsMentionExtractor
             });
     }
 
+    public static string ReplaceTeamMention(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return value;
+
+        // The brackets are required in the PMS comment:
+        // [team]
+        //
+        // Zulip receives:
+        // @*team*
+        return Regex.Replace(
+            value,
+            @"\[team\]",
+            "@*team*",
+            RegexOptions.IgnoreCase);
+    }
+
     public static string NeutralizeBroadcastMentions(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
