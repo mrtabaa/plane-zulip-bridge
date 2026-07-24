@@ -811,27 +811,27 @@ static async Task AppendChangeDetails(
         return;
     }
 
-    if (EqualsIgnoreCase(field, "description_html"))
-    {
-        var oldDescription = StripHtml(ValueAsString(oldValue));
-        var newDescription = StripHtml(ValueAsString(newValue));
+    // if (EqualsIgnoreCase(field, "description_html"))
+    // {
+    //     var oldDescription = StripHtml(ValueAsString(oldValue));
+    //     var newDescription = StripHtml(ValueAsString(newValue));
 
-        message.AppendLine("* **Previous description:**");
+    //     message.AppendLine("* **Previous description:**");
 
-        message.AppendLine(
-            string.IsNullOrWhiteSpace(oldDescription)
-                ? "  _Empty_"
-                : IndentQuote(oldDescription));
+    //     message.AppendLine(
+    //         string.IsNullOrWhiteSpace(oldDescription)
+    //             ? "  _Empty_"
+    //             : IndentQuote(oldDescription));
 
-        message.AppendLine("* **New description:**");
+    //     message.AppendLine("* **New description:**");
 
-        message.AppendLine(
-            string.IsNullOrWhiteSpace(newDescription)
-                ? "  _Empty_"
-                : IndentQuote(newDescription));
+    //     message.AppendLine(
+    //         string.IsNullOrWhiteSpace(newDescription)
+    //             ? "  _Empty_"
+    //             : IndentQuote(newDescription));
 
-        return;
-    }
+    //     return;
+    // }
 
     if (EqualsIgnoreCase(field, "priority"))
     {
@@ -1681,7 +1681,7 @@ static string FriendlyFieldName(string? field)
     {
         "state_id" => "Status",
         "assignee_ids" => "Assignees",
-        "description_html" => "Description",
+        // "description_html" => "Description",
         "priority" => "Priority",
         "name" => "Title",
         "start_date" => "Start date",

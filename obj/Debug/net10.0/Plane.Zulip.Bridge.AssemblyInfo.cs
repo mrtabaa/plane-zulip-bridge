@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Plane.Zulip.Bridge")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+98767c9754b275b2073f893e19069ff1484282c6")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cf1b806337573e8e22e881efaf9eb93edc899a5e")]
 [assembly: System.Reflection.AssemblyProductAttribute("Plane.Zulip.Bridge")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Plane.Zulip.Bridge")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
