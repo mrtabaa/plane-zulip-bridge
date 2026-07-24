@@ -43,6 +43,32 @@ var http = new HttpClient
     Timeout = TimeSpan.FromSeconds(15)
 };
 
+var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
+
+var zulipUserResolver = new ZulipUserResolver(
+    http,
+    zulipUrl,
+    zulipEmail,
+    zulipApiKey,
+    loggerFactory.CreateLogger<ZulipUserResolver>());
+
+var zulipMentionFormatter = new ZulipMentionFormatter(
+    zulipUserResolver,
+    loggerFactory.CreateLogger<ZulipMentionFormatter>());
+
+var pmsMentionExtractor = new PmsMentionExtractor();
+
+try
+{
+    await zulipUserResolver.RefreshAsync(CancellationToken.None);
+}
+catch (Exception exception)
+{
+    app.Logger.LogWarning(
+        exception,
+        "Initial Zulip user directory refresh failed; webhooks will use plain user names until refresh succeeds");
+}
+
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "ok",
@@ -106,6 +132,10 @@ app.MapPost("/plane/{token}", async (
         var actorName = PersonName(actor);
         var actorEmail = String(actor, "email");
         var actorId = String(actor, "id");
+        var actorUser = new PmsUserRef(
+            actorId,
+            actorEmail,
+            actorName);
 
         var projectId = String(data, "project") ?? "";
         var project = ResolveProject(projectId, projects);
@@ -158,7 +188,7 @@ app.MapPost("/plane/{token}", async (
 
             if (EqualsIgnoreCase(action, "created"))
             {
-                content = BuildCreatedIssueMessage(
+                content = await BuildCreatedIssueMessage(
                     data,
                     actorName,
                     actorEmail,
@@ -168,11 +198,15 @@ app.MapPost("/plane/{token}", async (
                     issueReference,
                     webhookId,
                     workspaceId,
-                    taskUrl);
+                    taskUrl,
+                    pmsMentionExtractor,
+                    zulipMentionFormatter,
+                    actorUser,
+                    cancellationToken);
             }
             else if (EqualsIgnoreCase(action, "updated"))
             {
-                content = BuildUpdatedIssueMessage(
+                content = await BuildUpdatedIssueMessage(
                     data,
                     activity,
                     actorName,
@@ -183,7 +217,11 @@ app.MapPost("/plane/{token}", async (
                     issueReference,
                     webhookId,
                     workspaceId,
-                    taskUrl);
+                    taskUrl,
+                    pmsMentionExtractor,
+                    zulipMentionFormatter,
+                    actorUser,
+                    cancellationToken);
             }
             else
             {
@@ -236,7 +274,7 @@ app.MapPost("/plane/{token}", async (
                     $"Task {ShortId(issueId)}");
             }
 
-            content = BuildCommentMessage(
+            content = await BuildCommentMessage(
                 data,
                 actorName,
                 actorEmail,
@@ -246,7 +284,11 @@ app.MapPost("/plane/{token}", async (
                 cachedIssue,
                 webhookId,
                 workspaceId,
-                taskUrl);
+                taskUrl,
+                pmsMentionExtractor,
+                zulipMentionFormatter,
+                actorUser,
+                cancellationToken);
         }
         else
         {
@@ -356,7 +398,7 @@ app.MapPost("/plane/{token}", async (
 
 app.Run();
 
-static string BuildCreatedIssueMessage(
+static async Task<string> BuildCreatedIssueMessage(
     JsonElement data,
     string actorName,
     string? actorEmail,
@@ -366,7 +408,11 @@ static string BuildCreatedIssueMessage(
     string issueReference,
     string? webhookId,
     string? workspaceId,
-    string? taskUrl)
+    string? taskUrl,
+    PmsMentionExtractor mentionExtractor,
+    ZulipMentionFormatter mentionFormatter,
+    PmsUserRef actorUser,
+    CancellationToken cancellationToken)
 {
     var issueName = String(data, "name") ?? "Unnamed task";
     var description = Description(data);
@@ -392,6 +438,12 @@ static string BuildCreatedIssueMessage(
         "Project",
         ProjectDisplay(project, projectId));
 
+    await AppendInvolvedUsersAsync(
+        message,
+        mentionFormatter,
+        mentionExtractor.IssueCreatedUsers(data, actorUser),
+        cancellationToken);
+
     AppendCurrentIssueDetails(message, data);
 
     if (!string.IsNullOrWhiteSpace(description))
@@ -413,7 +465,7 @@ static string BuildCreatedIssueMessage(
     return message.ToString().Trim();
 }
 
-static string BuildUpdatedIssueMessage(
+static async Task<string> BuildUpdatedIssueMessage(
     JsonElement data,
     JsonElement activity,
     string actorName,
@@ -424,7 +476,11 @@ static string BuildUpdatedIssueMessage(
     string issueReference,
     string? webhookId,
     string? workspaceId,
-    string? taskUrl)
+    string? taskUrl,
+    PmsMentionExtractor mentionExtractor,
+    ZulipMentionFormatter mentionFormatter,
+    PmsUserRef actorUser,
+    CancellationToken cancellationToken)
 {
     var issueName = String(data, "name") ?? "Unnamed task";
     var field = String(activity, "field");
@@ -454,6 +510,12 @@ static string BuildUpdatedIssueMessage(
         message,
         "Changed field",
         FriendlyFieldName(field));
+
+    await AppendInvolvedUsersAsync(
+        message,
+        mentionFormatter,
+        mentionExtractor.IssueUpdatedUsers(data, activity, actorUser),
+        cancellationToken);
 
     message.AppendLine();
     message.AppendLine("#### Change");
@@ -494,7 +556,7 @@ static string BuildUpdatedIssueMessage(
     return message.ToString().Trim();
 }
 
-static string BuildCommentMessage(
+static async Task<string> BuildCommentMessage(
     JsonElement data,
     string actorName,
     string? actorEmail,
@@ -504,11 +566,53 @@ static string BuildCommentMessage(
     IssueInfo? cachedIssue,
     string? webhookId,
     string? workspaceId,
-    string? taskUrl)
+    string? taskUrl,
+    PmsMentionExtractor mentionExtractor,
+    ZulipMentionFormatter mentionFormatter,
+    PmsUserRef actorUser,
+    CancellationToken cancellationToken)
 {
     var issueId = String(data, "issue") ?? "";
     var commentId = String(data, "id");
-    var comment = StripHtml(String(data, "comment_html"));
+    var comment = StripHtml(
+        String(data, "comment_html") ??
+        String(data, "comment") ??
+        String(data, "body") ??
+        String(data, "content"));
+    comment = PmsMentionExtractor.NeutralizeBroadcastMentions(comment);
+    var originalCommentForExtraction = comment;
+    var structuredMentions = mentionExtractor.StructuredCommentMentions(data);
+    var mentionedUsers = structuredMentions.Count > 0
+        ? structuredMentions
+        : mentionExtractor.MentionEmailsFromText(comment);
+    var mentionedUserDisplays =
+        await mentionFormatter.FormatDistinctUsersAsync(
+            mentionedUsers,
+            cancellationToken);
+    var mentionsByEmail = new Dictionary<string, string>(
+        StringComparer.OrdinalIgnoreCase);
+
+    for (var index = 0; index < mentionedUsers.Count; index++)
+    {
+        var normalizedEmail = ZulipUserResolver.NormalizeEmail(
+            mentionedUsers[index].Email);
+
+        if (normalizedEmail is not null &&
+            index < mentionedUserDisplays.Count &&
+            mentionedUserDisplays[index].StartsWith(
+                "@**",
+                StringComparison.Ordinal))
+        {
+            mentionsByEmail[normalizedEmail] = mentionedUserDisplays[index];
+        }
+    }
+
+    if (structuredMentions.Count == 0)
+    {
+        comment = mentionExtractor.ReplaceReliableTextMentions(
+            comment,
+            mentionsByEmail);
+    }
 
     var title = cachedIssue is not null
         ? cachedIssue.SequenceId is not null
@@ -533,6 +637,23 @@ static string BuildCommentMessage(
         message,
         "Project",
         ProjectDisplay(project, projectId));
+
+    AddBullet(
+        message,
+        "Mentioned users",
+        mentionedUserDisplays.Count > 0
+            ? string.Join(", ", mentionedUserDisplays)
+            : "None");
+
+    await AppendInvolvedUsersAsync(
+        message,
+        mentionFormatter,
+        mentionExtractor.CommentUsers(
+            data,
+            data,
+            actorUser,
+            originalCommentForExtraction),
+        cancellationToken);
 
     AddBullet(
         message,
@@ -594,6 +715,25 @@ static string BuildCommentMessage(
     }
 
     return message.ToString().Trim();
+}
+
+static async Task AppendInvolvedUsersAsync(
+    StringBuilder message,
+    ZulipMentionFormatter mentionFormatter,
+    IReadOnlyList<PmsUserRef> users,
+    CancellationToken cancellationToken)
+{
+    var displays = await mentionFormatter.FormatDistinctUsersAsync(
+        users,
+        cancellationToken);
+
+    if (displays.Count == 0)
+        return;
+
+    AddBullet(
+        message,
+        "Involved users",
+        string.Join(", ", displays));
 }
 
 static void AppendChangeDetails(

@@ -4,7 +4,8 @@ WORKDIR /src
 COPY Plane.Zulip.Bridge.csproj .
 RUN dotnet restore
 
-COPY Program.cs .
+COPY Program.cs ZulipMentions.cs ./
+COPY Properties ./Properties
 RUN dotnet publish -c Release -o /app --no-restore
 
 
