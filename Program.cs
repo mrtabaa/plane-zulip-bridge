@@ -213,6 +213,21 @@ app.MapPost("/plane/{token}", async (
             }
             else if (EqualsIgnoreCase(action, "updated"))
             {
+                var changedField = String(activity, "field");
+
+                if (IsDescriptionField(changedField))
+                {
+                    app.Logger.LogInformation(
+                        "Ignored description update for issue {IssueId}",
+                        String(data, "id"));
+
+                    return Results.Ok(new
+                    {
+                        ignored = true,
+                        reason = "Description update"
+                    });
+                }
+
                 content = await BuildUpdatedIssueMessage(
                     data,
                     activity,
@@ -404,6 +419,16 @@ app.MapPost("/plane/{token}", async (
 });
 
 app.Run();
+
+static bool IsDescriptionField(string? field)
+{
+    return field is not null &&
+        (
+            field.Equals("description", StringComparison.OrdinalIgnoreCase) ||
+            field.Equals("description_html", StringComparison.OrdinalIgnoreCase) ||
+            field.Equals("description_stripped", StringComparison.OrdinalIgnoreCase)
+        );
+}
 
 static async Task<string> BuildCreatedIssueMessage(
     JsonElement data,
