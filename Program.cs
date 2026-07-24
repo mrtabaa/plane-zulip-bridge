@@ -422,7 +422,7 @@ static async Task<string> BuildCreatedIssueMessage(
     CancellationToken cancellationToken)
 {
     var issueName = String(data, "name") ?? "Unnamed task";
-    var description = Description(data);
+    // var description = Description(data);
 
     var message = new StringBuilder();
 
@@ -459,12 +459,12 @@ static async Task<string> BuildCreatedIssueMessage(
         mentionFormatter,
         cancellationToken);
 
-    if (!string.IsNullOrWhiteSpace(description))
-    {
-        message.AppendLine();
-        message.AppendLine("#### Description");
-        message.AppendLine(Quote(description));
-    }
+    // if (!string.IsNullOrWhiteSpace(description))
+    // {
+    //     message.AppendLine();
+    //     message.AppendLine("#### Description");
+    //     message.AppendLine(Quote(description));
+    // }
 
     AppendTechnicalDetails(
         message,
@@ -553,15 +553,15 @@ static async Task<string> BuildUpdatedIssueMessage(
         cancellationToken,
         includeHeading: false);
 
-    var description = Description(data);
+    // var description = Description(data);
 
-    if (!string.IsNullOrWhiteSpace(description) &&
-        !EqualsIgnoreCase(field, "description_html"))
-    {
-        message.AppendLine();
-        message.AppendLine("#### Current description");
-        message.AppendLine(Quote(description));
-    }
+    // if (!string.IsNullOrWhiteSpace(description) &&
+    //     !EqualsIgnoreCase(field, "description_html"))
+    // {
+    //     message.AppendLine();
+    //     message.AppendLine("#### Current description");
+    //     message.AppendLine(Quote(description));
+    // }
 
     AppendTechnicalDetails(
         message,
@@ -1643,15 +1643,15 @@ static string Attachments(JsonElement data)
         : "None";
 }
 
-static string Description(JsonElement data)
-{
-    var stripped = String(data, "description_stripped");
+// static string Description(JsonElement data)
+// {
+//     var stripped = String(data, "description_stripped");
 
-    if (!string.IsNullOrWhiteSpace(stripped))
-        return stripped.Trim();
+//     if (!string.IsNullOrWhiteSpace(stripped))
+//         return stripped.Trim();
 
-    return StripHtml(String(data, "description_html"));
-}
+//     return StripHtml(String(data, "description_html"));
+// }
 
 static string PersonName(JsonElement person)
 {
