@@ -1,0 +1,6 @@
+@Plane.Zulip.Bridge_HostAddress = http://localhost:5243
+
+GET {{Plane.Zulip.Bridge_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
