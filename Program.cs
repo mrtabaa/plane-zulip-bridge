@@ -18,6 +18,12 @@ var zulipEmail = Required("ZULIP_BOT_EMAIL");
 var zulipApiKey = Required("ZULIP_BOT_API_KEY");
 var zulipChannel = Required("ZULIP_CHANNEL");
 var webhookToken = Required("WEBHOOK_TOKEN");
+var zulipUserMap = ZulipMentionFormatter.LoadUserMap(
+    LoadJsonConfiguration(
+        "ZULIP_USER_MAP_FILE",
+        "ZULIP_USER_MAP_JSON",
+        "./config/zulip-user-map.json"),
+    app.Logger);
 
 var pmsTaskUrlTemplate =
     Environment.GetEnvironmentVariable("PMS_TASK_URL_TEMPLATE")
@@ -54,7 +60,8 @@ var zulipUserResolver = new ZulipUserResolver(
 
 var zulipMentionFormatter = new ZulipMentionFormatter(
     zulipUserResolver,
-    loggerFactory.CreateLogger<ZulipMentionFormatter>());
+    loggerFactory.CreateLogger<ZulipMentionFormatter>(),
+    zulipUserMap);
 
 var pmsMentionExtractor = new PmsMentionExtractor();
 
@@ -431,7 +438,9 @@ static async Task<string> BuildCreatedIssueMessage(
     AddBullet(
         message,
         "Created by",
-        PersonDisplay(actorName, actorEmail, actorId));
+        await mentionFormatter.FormatUserAsync(
+            actorUser,
+            cancellationToken));
 
     AddBullet(
         message,
@@ -444,7 +453,11 @@ static async Task<string> BuildCreatedIssueMessage(
         mentionExtractor.IssueCreatedUsers(data, actorUser),
         cancellationToken);
 
-    AppendCurrentIssueDetails(message, data);
+    await AppendCurrentIssueDetails(
+        message,
+        data,
+        mentionFormatter,
+        cancellationToken);
 
     if (!string.IsNullOrWhiteSpace(description))
     {
@@ -499,7 +512,9 @@ static async Task<string> BuildUpdatedIssueMessage(
     AddBullet(
         message,
         "Updated by",
-        PersonDisplay(actorName, actorEmail, actorId));
+        await mentionFormatter.FormatUserAsync(
+            actorUser,
+            cancellationToken));
 
     AddBullet(
         message,
@@ -520,18 +535,22 @@ static async Task<string> BuildUpdatedIssueMessage(
     message.AppendLine();
     message.AppendLine("#### Change");
 
-    AppendChangeDetails(
+    await AppendChangeDetails(
         message,
         data,
         activity,
-        field);
+        field,
+        mentionFormatter,
+        cancellationToken);
 
     message.AppendLine();
     message.AppendLine("#### Current task details");
 
-    AppendCurrentIssueDetails(
+    await AppendCurrentIssueDetails(
         message,
         data,
+        mentionFormatter,
+        cancellationToken,
         includeHeading: false);
 
     var description = Description(data);
@@ -631,7 +650,9 @@ static async Task<string> BuildCommentMessage(
     AddBullet(
         message,
         "Author",
-        PersonDisplay(actorName, actorEmail, actorId));
+        await mentionFormatter.FormatUserAsync(
+            actorUser,
+            cancellationToken));
 
     AddBullet(
         message,
@@ -736,11 +757,13 @@ static async Task AppendInvolvedUsersAsync(
         string.Join(", ", displays));
 }
 
-static void AppendChangeDetails(
+static async Task AppendChangeDetails(
     StringBuilder message,
     JsonElement data,
     JsonElement activity,
-    string? field)
+    string? field,
+    ZulipMentionFormatter mentionFormatter,
+    CancellationToken cancellationToken)
 {
     var oldValue = Property(activity, "old_value");
     var newValue = Property(activity, "new_value");
@@ -777,11 +800,13 @@ static void AppendChangeDetails(
 
     if (EqualsIgnoreCase(field, "assignee_ids"))
     {
-        AppendAssigneeChanges(
+        await AppendAssigneeChanges(
             message,
             data,
             oldValue,
-            newValue);
+            newValue,
+            mentionFormatter,
+            cancellationToken);
 
         return;
     }
@@ -977,15 +1002,20 @@ static bool IsReadableName(string? value)
     return !Guid.TryParse(value, out _);
 }
 
-static void AppendAssigneeChanges(
+static async Task AppendAssigneeChanges(
     StringBuilder message,
     JsonElement data,
     JsonElement oldValue,
-    JsonElement newValue)
+    JsonElement newValue,
+    ZulipMentionFormatter mentionFormatter,
+    CancellationToken cancellationToken)
 {
     var oldIds = StringArray(oldValue);
     var newIds = StringArray(newValue);
-    var currentAssignees = AssigneeDictionary(data);
+    var currentAssignees = await AssigneeDictionary(
+        data,
+        mentionFormatter,
+        cancellationToken);
 
     var addedIds = newIds
         .Except(
@@ -1035,7 +1065,10 @@ static void AppendAssigneeChanges(
     AddBullet(
         message,
         "Current assignees",
-        Assignees(data));
+        await Assignees(
+            data,
+            mentionFormatter,
+            cancellationToken));
 }
 
 static string CountDisplay(
@@ -1048,9 +1081,11 @@ static string CountDisplay(
         : $"{count} {plural}";
 }
 
-static void AppendCurrentIssueDetails(
+static async Task AppendCurrentIssueDetails(
     StringBuilder message,
     JsonElement data,
+    ZulipMentionFormatter mentionFormatter,
+    CancellationToken cancellationToken,
     bool includeHeading = true)
 {
     if (includeHeading)
@@ -1101,7 +1136,10 @@ static void AppendCurrentIssueDetails(
     AddBullet(
         message,
         "Assignees",
-        Assignees(data));
+        await Assignees(
+            data,
+            mentionFormatter,
+            cancellationToken));
 
     AddBullet(
         message,
@@ -1233,8 +1271,10 @@ static string? BuildTaskUrl(
 
 static Dictionary<string, ProjectInfo> LoadProjects()
 {
-    var json = Environment.GetEnvironmentVariable(
-        "PMS_PROJECTS_JSON");
+    var json = LoadJsonConfiguration(
+        "PMS_PROJECTS_FILE",
+        "PMS_PROJECTS_JSON",
+        "./config/pms-projects.json");
 
     var result = new Dictionary<string, ProjectInfo>(
         StringComparer.OrdinalIgnoreCase);
@@ -1319,6 +1359,67 @@ static Dictionary<string, ProjectInfo> LoadProjects()
     }
 }
 
+static string? LoadJsonConfiguration(
+    string fileEnvironmentVariable,
+    string inlineEnvironmentVariable,
+    string defaultFile)
+{
+    var configuredFile = Environment.GetEnvironmentVariable(
+        fileEnvironmentVariable);
+
+    if (!string.IsNullOrWhiteSpace(configuredFile))
+    {
+        return ReadConfigurationFile(
+            configuredFile.Trim(),
+            fileEnvironmentVariable);
+    }
+
+    var inlineJson = Environment.GetEnvironmentVariable(
+        inlineEnvironmentVariable);
+
+    if (!string.IsNullOrWhiteSpace(inlineJson))
+        return inlineJson;
+
+    var defaultPath = ResolveConfigurationPath(defaultFile);
+
+    return File.Exists(defaultPath)
+        ? File.ReadAllText(defaultPath)
+        : null;
+}
+
+static string ReadConfigurationFile(
+    string configuredPath,
+    string environmentVariable)
+{
+    var path = ResolveConfigurationPath(configuredPath);
+
+    if (!File.Exists(path))
+    {
+        throw new InvalidOperationException(
+            $"Configuration file '{configuredPath}' from " +
+            $"{environmentVariable} was not found at '{path}'.");
+    }
+
+    return File.ReadAllText(path);
+}
+
+static string ResolveConfigurationPath(string configuredPath)
+{
+    if (Path.IsPathRooted(configuredPath))
+        return configuredPath;
+
+    var currentDirectoryPath = Path.GetFullPath(
+        configuredPath,
+        Directory.GetCurrentDirectory());
+
+    if (File.Exists(currentDirectoryPath))
+        return currentDirectoryPath;
+
+    return Path.GetFullPath(
+        configuredPath,
+        AppContext.BaseDirectory);
+}
+
 static ProjectInfo ResolveProject(
     string? projectId,
     IReadOnlyDictionary<string, ProjectInfo> projects)
@@ -1398,7 +1499,10 @@ static string NormalizeTopicTitle(string value)
         .Trim();
 }
 
-static string Assignees(JsonElement data)
+static async Task<string> Assignees(
+    JsonElement data,
+    ZulipMentionFormatter mentionFormatter,
+    CancellationToken cancellationToken)
 {
     if (data.ValueKind != JsonValueKind.Object ||
         !data.TryGetProperty("assignees", out var array) ||
@@ -1407,22 +1511,30 @@ static string Assignees(JsonElement data)
         return "Unassigned";
     }
 
-    var assignees = array
+    var assigneeUsers = array
         .EnumerateArray()
-        .Select(assignee => PersonDisplay(
-            PersonName(assignee),
+        .Select(assignee => new PmsUserRef(
+            String(assignee, "id"),
             String(assignee, "email"),
-            String(assignee, "id")))
-        .Where(value => !string.IsNullOrWhiteSpace(value))
+            PersonName(assignee)))
         .ToArray();
 
-    return assignees.Length == 0
+    if (assigneeUsers.Length == 0)
+        return "Unassigned";
+
+    var assignees = await mentionFormatter.FormatDistinctUsersAsync(
+        assigneeUsers,
+        cancellationToken);
+
+    return assignees.Count == 0
         ? "Unassigned"
         : string.Join(", ", assignees);
 }
 
-static Dictionary<string, string> AssigneeDictionary(
-    JsonElement data)
+static async Task<Dictionary<string, string>> AssigneeDictionary(
+    JsonElement data,
+    ZulipMentionFormatter mentionFormatter,
+    CancellationToken cancellationToken)
 {
     var result = new Dictionary<string, string>(
         StringComparer.OrdinalIgnoreCase);
@@ -1441,10 +1553,14 @@ static Dictionary<string, string> AssigneeDictionary(
         if (string.IsNullOrWhiteSpace(id))
             continue;
 
-        result[id] = PersonDisplay(
-            PersonName(assignee),
-            String(assignee, "email"),
-            id);
+        var display = await mentionFormatter.FormatUserAsync(
+            new PmsUserRef(
+                id,
+                String(assignee, "email"),
+                PersonName(assignee)),
+            cancellationToken);
+
+        result[id] = display;
     }
 
     return result;
@@ -1557,31 +1673,6 @@ static string PersonName(JsonElement person)
     return string.IsNullOrWhiteSpace(email)
         ? "Someone"
         : email;
-}
-
-static string PersonDisplay(
-    string? name,
-    string? email,
-    string? id)
-{
-    // The ID is deliberately not displayed here. It remains available
-    // under Technical details when applicable.
-    var result = new StringBuilder();
-
-    result.Append(
-        EscapeMarkdown(
-            string.IsNullOrWhiteSpace(name)
-                ? "Someone"
-                : name));
-
-    if (!string.IsNullOrWhiteSpace(email) &&
-        !EqualsIgnoreCase(name, email))
-    {
-        result.Append(
-            $" ({EscapeMarkdown(email)})");
-    }
-
-    return result.ToString();
 }
 
 static string FriendlyFieldName(string? field)

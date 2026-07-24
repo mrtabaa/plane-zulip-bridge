@@ -31,6 +31,24 @@ public sealed class ZulipMentionTests
     }
 
     [Fact]
+    public async Task ExplicitUserMap_BecomesZulipMentionWithoutDirectoryMatch()
+    {
+        var userMap = ZulipMentionFormatter.LoadUserMap(
+            "{\"faranak@hallboard.ir\":\"Faranak - Scrum Master\"}",
+            NullLogger.Instance);
+        var formatter = new ZulipMentionFormatter(
+            new FakeResolver(),
+            NullLogger<ZulipMentionFormatter>.Instance,
+            userMap);
+
+        var result = await formatter.FormatUserAsync(
+            new PmsUserRef("pms-1", "FARANAK@hallboard.ir", "faranak"),
+            CancellationToken.None);
+
+        Assert.Equal("@**Faranak - Scrum Master**", result);
+    }
+
+    [Fact]
     public async Task ActorEmail_BecomesZulipMention()
     {
         var formatter = Formatter(
@@ -260,6 +278,39 @@ public sealed class ZulipMentionTests
         Assert.Equal("Faranak - Scrum Master", user.FullName);
     }
 
+    [Fact]
+    public async Task Resolver_FallsBackToApiEmailWhenDeliveryEmailIsEmpty()
+    {
+        var http = new HttpClient(new StaticHandler(
+            HttpStatusCode.OK,
+            """
+            {
+              "members": [
+                {
+                  "user_id": 44,
+                  "email": "admin@hallboard.ir",
+                  "delivery_email": "",
+                  "full_name": "Admin",
+                  "is_active": true
+                }
+              ]
+            }
+            """));
+        var resolver = new ZulipUserResolver(
+            http,
+            "https://zulip.example.com",
+            "bot@example.com",
+            "secret",
+            NullLogger<ZulipUserResolver>.Instance);
+
+        var user = await resolver.FindByEmailAsync(
+            "admin@hallboard.ir",
+            CancellationToken.None);
+
+        Assert.NotNull(user);
+        Assert.Equal("Admin", user.FullName);
+    }
+
     private static ZulipMentionFormatter Formatter(
         params (string Email, ZulipUser User)[] users)
     {
@@ -273,6 +324,17 @@ public sealed class ZulipMentionTests
 
     private static JsonDocument Json(string json) =>
         JsonDocument.Parse(json);
+
+    private sealed class FakeResolver : IZulipUserResolver
+    {
+        public Task RefreshAsync(CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public ValueTask<ZulipUser?> FindByEmailAsync(
+            string? email,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult<ZulipUser?>(null);
+    }
 
     private sealed class StaticResolver : IZulipUserResolver
     {
