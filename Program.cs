@@ -491,12 +491,12 @@ static async Task<string> BuildCreatedIssueMessage(
     //     message.AppendLine(Quote(description));
     // }
 
-    AppendTechnicalDetails(
-        message,
-        webhookId,
-        workspaceId,
-        projectId,
-        String(data, "id"));
+    // AppendTechnicalDetails(
+    //     message,
+    //     webhookId,
+    //     workspaceId,
+    //     projectId,
+    //     String(data, "id"));
 
     AppendTaskLink(message, taskUrl);
 
@@ -588,12 +588,12 @@ static async Task<string> BuildUpdatedIssueMessage(
     //     message.AppendLine(Quote(description));
     // }
 
-    AppendTechnicalDetails(
-        message,
-        webhookId,
-        workspaceId,
-        projectId,
-        String(data, "id"));
+    // AppendTechnicalDetails(
+    //     message,
+    //     webhookId,
+    //     workspaceId,
+    //     projectId,
+    //     String(data, "id"));
 
     AppendTaskLink(message, taskUrl);
 
@@ -744,13 +744,13 @@ static async Task<string> BuildCommentMessage(
             ? "_Empty comment_"
             : Quote(comment));
 
-    AppendTechnicalDetails(
-        message,
-        webhookId,
-        workspaceId,
-        projectId,
-        issueId,
-        commentId);
+    // AppendTechnicalDetails(
+    //     message,
+    //     webhookId,
+    //     workspaceId,
+    //     projectId,
+    //     issueId,
+    //     commentId);
 
     AppendTaskLink(message, taskUrl);
 
@@ -1239,23 +1239,23 @@ static async Task AppendCurrentIssueDetails(
     }
 }
 
-static void AppendTechnicalDetails(
-    StringBuilder message,
-    string? webhookId,
-    string? workspaceId,
-    string? projectId,
-    string? issueId,
-    string? commentId = null)
-{
-    message.AppendLine();
-    message.AppendLine("#### Technical details");
+// static void AppendTechnicalDetails(
+//     StringBuilder message,
+//     string? webhookId,
+//     string? workspaceId,
+//     string? projectId,
+//     string? issueId,
+//     string? commentId = null)
+// {
+//     message.AppendLine();
+//     message.AppendLine("#### Technical details");
 
-    AddBullet(message, "Task ID", Code(issueId));
-    AddBullet(message, "Comment ID", Code(commentId));
-    AddBullet(message, "Project ID", Code(projectId));
-    AddBullet(message, "Workspace ID", Code(workspaceId));
-    AddBullet(message, "Webhook ID", Code(webhookId));
-}
+//     AddBullet(message, "Task ID", Code(issueId));
+//     AddBullet(message, "Comment ID", Code(commentId));
+//     AddBullet(message, "Project ID", Code(projectId));
+//     AddBullet(message, "Workspace ID", Code(workspaceId));
+//     AddBullet(message, "Webhook ID", Code(webhookId));
+// }
 
 static void AppendTaskLink(
     StringBuilder message,
