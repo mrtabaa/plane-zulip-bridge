@@ -5,28 +5,29 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using static PmsPayload;
 
 // Load .env before creating the application so all configuration is
 // available through Environment.GetEnvironmentVariable().
-LoadDotEnv();
+BridgeConfiguration.LoadDotEnv();
 
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
 
-var zulipUrl = Required("ZULIP_URL").TrimEnd('/');
-var zulipEmail = Required("ZULIP_BOT_EMAIL");
-var zulipApiKey = Required("ZULIP_BOT_API_KEY");
-var zulipChannel = Required("ZULIP_CHANNEL");
-var webhookToken = Required("WEBHOOK_TOKEN");
+var zulipUrl = BridgeConfiguration.Required("ZULIP_URL").TrimEnd('/');
+var zulipEmail = BridgeConfiguration.Required("ZULIP_BOT_EMAIL");
+var zulipApiKey = BridgeConfiguration.Required("ZULIP_BOT_API_KEY");
+var zulipChannel = BridgeConfiguration.Required("ZULIP_CHANNEL");
+var webhookToken = BridgeConfiguration.Required("WEBHOOK_TOKEN");
 var zulipUserMap = ZulipMentionFormatter.LoadUserMap(
-    LoadJsonConfiguration(
+    BridgeConfiguration.LoadJsonConfiguration(
         "ZULIP_USER_MAP_FILE",
         "ZULIP_USER_MAP_JSON",
         "./config/zulip-user-map.json"),
     app.Logger);
 
 var planeMentionMap = PlaneMentionMapLoader.Load(
-    LoadJsonConfiguration(
+    BridgeConfiguration.LoadJsonConfiguration(
         "PLANE_MENTION_MAP_FILE",
         "PLANE_MENTION_MAP_JSON",
         "./config/plane-mention-map.json"),
@@ -37,7 +38,7 @@ var pmsTaskUrlTemplate =
     ?? "https://pms.hallboard.ir/team/browse/" +
        "{projectIdentifier}-{sequenceId}/";
 
-var projects = LoadProjects();
+var projects = BridgeConfiguration.LoadProjects();
 
 /*
  * Comment webhook payloads contain the issue UUID but not sequence_id.
@@ -157,7 +158,7 @@ app.MapPost("/plane/{token}", async (
             actorName);
 
         var projectId = String(data, "project") ?? "";
-        var project = ResolveProject(projectId, projects);
+        var project = BridgeConfiguration.ResolveProject(projectId, projects);
 
         app.Logger.LogInformation(
             "Received PMS webhook: Event={Event}, Action={Action}, " +
@@ -1415,174 +1416,6 @@ static string? BuildTaskUrl(
         : null;
 }
 
-static Dictionary<string, ProjectInfo> LoadProjects()
-{
-    var json = LoadJsonConfiguration(
-        "PMS_PROJECTS_FILE",
-        "PMS_PROJECTS_JSON",
-        "./config/pms-projects.json");
-
-    var result = new Dictionary<string, ProjectInfo>(
-        StringComparer.OrdinalIgnoreCase);
-
-    if (string.IsNullOrWhiteSpace(json))
-        return result;
-
-    try
-    {
-        using var document = JsonDocument.Parse(json);
-
-        if (document.RootElement.ValueKind != JsonValueKind.Object)
-        {
-            throw new InvalidOperationException(
-                "PMS_PROJECTS_JSON must be a JSON object.");
-        }
-
-        foreach (var property in document.RootElement.EnumerateObject())
-        {
-            var projectId = property.Name;
-            var value = property.Value;
-
-            /*
-             * Backward-compatible format:
-             *
-             * {
-             *   "project-uuid": "Mostaghelat"
-             * }
-             *
-             * It can display the project name, but cannot create task links
-             * because no project identifier was supplied.
-             */
-            if (value.ValueKind == JsonValueKind.String)
-            {
-                var name2 = value.GetString();
-
-                if (!string.IsNullOrWhiteSpace(name2))
-                {
-                    result[projectId] = new ProjectInfo(
-                        name2.Trim(),
-                        "");
-                }
-
-                continue;
-            }
-
-            /*
-             * Recommended format:
-             *
-             * {
-             *   "project-uuid": {
-             *     "name": "Persian-Khab",
-             *     "identifier": "PERSKHAB"
-             *   }
-             * }
-             */
-            if (value.ValueKind != JsonValueKind.Object)
-                continue;
-
-            var name = String(value, "name");
-            var identifier = String(value, "identifier");
-
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                name = !string.IsNullOrWhiteSpace(identifier)
-                    ? identifier
-                    : $"Project {ShortId(projectId)}";
-            }
-
-            result[projectId] = new ProjectInfo(
-                name.Trim(),
-                identifier?.Trim() ?? "");
-        }
-
-        return result;
-    }
-    catch (JsonException exception)
-    {
-        throw new InvalidOperationException(
-            "PMS_PROJECTS_JSON contains invalid JSON.",
-            exception);
-    }
-}
-
-static string? LoadJsonConfiguration(
-    string fileEnvironmentVariable,
-    string inlineEnvironmentVariable,
-    string defaultFile)
-{
-    var configuredFile = Environment.GetEnvironmentVariable(
-        fileEnvironmentVariable);
-
-    if (!string.IsNullOrWhiteSpace(configuredFile))
-    {
-        return ReadConfigurationFile(
-            configuredFile.Trim(),
-            fileEnvironmentVariable);
-    }
-
-    var inlineJson = Environment.GetEnvironmentVariable(
-        inlineEnvironmentVariable);
-
-    if (!string.IsNullOrWhiteSpace(inlineJson))
-        return inlineJson;
-
-    var defaultPath = ResolveConfigurationPath(defaultFile);
-
-    return File.Exists(defaultPath)
-        ? File.ReadAllText(defaultPath)
-        : null;
-}
-
-static string ReadConfigurationFile(
-    string configuredPath,
-    string environmentVariable)
-{
-    var path = ResolveConfigurationPath(configuredPath);
-
-    if (!File.Exists(path))
-    {
-        throw new InvalidOperationException(
-            $"Configuration file '{configuredPath}' from " +
-            $"{environmentVariable} was not found at '{path}'.");
-    }
-
-    return File.ReadAllText(path);
-}
-
-static string ResolveConfigurationPath(string configuredPath)
-{
-    if (Path.IsPathRooted(configuredPath))
-        return configuredPath;
-
-    var currentDirectoryPath = Path.GetFullPath(
-        configuredPath,
-        Directory.GetCurrentDirectory());
-
-    if (File.Exists(currentDirectoryPath))
-        return currentDirectoryPath;
-
-    return Path.GetFullPath(
-        configuredPath,
-        AppContext.BaseDirectory);
-}
-
-static ProjectInfo ResolveProject(
-    string? projectId,
-    IReadOnlyDictionary<string, ProjectInfo> projects)
-{
-    if (!string.IsNullOrWhiteSpace(projectId) &&
-        projects.TryGetValue(projectId, out var project))
-    {
-        return project;
-    }
-
-    return new ProjectInfo(
-        string.IsNullOrWhiteSpace(projectId)
-            ? "Unknown project"
-            : $"Project {ShortId(projectId)}",
-        "");
-}
-
 static string ProjectDisplay(
     ProjectInfo project,
     string? projectId)
@@ -1798,28 +1631,6 @@ static string Attachments(JsonElement data)
 
 //     return StripHtml(String(data, "description_html"));
 // }
-
-static string PersonName(JsonElement person)
-{
-    var displayName = String(person, "display_name");
-
-    if (!string.IsNullOrWhiteSpace(displayName))
-        return displayName.Trim();
-
-    var firstName = String(person, "first_name");
-    var lastName = String(person, "last_name");
-
-    var fullName = $"{firstName} {lastName}".Trim();
-
-    if (!string.IsNullOrWhiteSpace(fullName))
-        return fullName;
-
-    var email = String(person, "email");
-
-    return string.IsNullOrWhiteSpace(email)
-        ? "Someone"
-        : email;
-}
 
 static string FriendlyFieldName(string? field)
 {
@@ -2094,154 +1905,6 @@ static string StripHtml(string? value)
 
     return value.Trim();
 }
-
-static JsonElement Object(
-    JsonElement element,
-    string property)
-{
-    if (element.ValueKind == JsonValueKind.Object &&
-        element.TryGetProperty(property, out var value) &&
-        value.ValueKind == JsonValueKind.Object)
-    {
-        return value;
-    }
-
-    return default;
-}
-
-static JsonElement Property(
-    JsonElement element,
-    string property)
-{
-    if (element.ValueKind == JsonValueKind.Object &&
-        element.TryGetProperty(property, out var value))
-    {
-        return value;
-    }
-
-    return default;
-}
-
-static string? String(
-    JsonElement element,
-    string property)
-{
-    if (element.ValueKind == JsonValueKind.Object &&
-        element.TryGetProperty(property, out var value) &&
-        value.ValueKind == JsonValueKind.String)
-    {
-        return value.GetString();
-    }
-
-    return null;
-}
-
-static long? Number(
-    JsonElement element,
-    string property)
-{
-    if (element.ValueKind == JsonValueKind.Object &&
-        element.TryGetProperty(property, out var value) &&
-        value.ValueKind == JsonValueKind.Number &&
-        value.TryGetInt64(out var number))
-    {
-        return number;
-    }
-
-    return null;
-}
-
-static string Required(string name)
-{
-    var value = Environment.GetEnvironmentVariable(name);
-
-    if (string.IsNullOrWhiteSpace(value))
-    {
-        throw new InvalidOperationException(
-            $"Required environment variable {name} is missing.");
-    }
-
-    return value;
-}
-
-/*
- * Basic .env loader.
- *
- * Existing operating-system/container environment variables take priority.
- * This means Docker, Kubernetes, or systemd can override .env values.
- */
-static void LoadDotEnv(string fileName = ".env")
-{
-    var paths = new[]
-    {
-        Path.Combine(Directory.GetCurrentDirectory(), fileName),
-        Path.Combine(AppContext.BaseDirectory, fileName)
-    };
-
-    var path = paths.FirstOrDefault(File.Exists);
-
-    if (path is null)
-        return;
-
-    foreach (var originalLine in File.ReadAllLines(path))
-    {
-        var line = originalLine.Trim();
-
-        if (string.IsNullOrWhiteSpace(line) ||
-            line.StartsWith('#'))
-        {
-            continue;
-        }
-
-        if (line.StartsWith(
-                "export ",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            line = line[7..].Trim();
-        }
-
-        var separatorIndex = line.IndexOf('=');
-
-        if (separatorIndex <= 0)
-            continue;
-
-        var key = line[..separatorIndex].Trim();
-        var value = line[(separatorIndex + 1)..].Trim();
-
-        if (string.IsNullOrWhiteSpace(key))
-            continue;
-
-        /*
-         * Do not overwrite variables already provided by Docker,
-         * Kubernetes, systemd, or the host operating system.
-         */
-        if (Environment.GetEnvironmentVariable(key) is not null)
-            continue;
-
-        if (value.Length >= 2)
-        {
-            if (value.StartsWith('\'') && value.EndsWith('\''))
-            {
-                value = value[1..^1];
-            }
-            else if (value.StartsWith('"') && value.EndsWith('"'))
-            {
-                value = value[1..^1]
-                    .Replace("\\n", "\n")
-                    .Replace("\\r", "\r")
-                    .Replace("\\t", "\t")
-                    .Replace("\\\"", "\"")
-                    .Replace("\\\\", "\\");
-            }
-        }
-
-        Environment.SetEnvironmentVariable(key, value);
-    }
-}
-
-internal sealed record ProjectInfo(
-    string Name,
-    string Identifier);
 
 internal sealed record IssueInfo(
     string IssueId,
