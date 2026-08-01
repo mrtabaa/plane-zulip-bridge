@@ -687,6 +687,8 @@ static async Task<string> BuildCommentMessage(
             rawCommentHtml,
             cancellationToken)
         : ExtractCommentText(data);
+    var planeMentionedUsers = planeCommentFormatter.MentionUsers(
+        rawCommentHtml);
 
     comment = PmsMentionExtractor.NeutralizeBroadcastMentions(comment);
     comment = PmsMentionExtractor.ReplaceTeamMention(comment);
@@ -695,7 +697,9 @@ static async Task<string> BuildCommentMessage(
     var structuredMentions = mentionExtractor.StructuredCommentMentions(data);
     var mentionedUsers = structuredMentions.Count > 0
         ? structuredMentions
-        : mentionExtractor.MentionEmailsFromText(comment);
+        : planeMentionedUsers.Count > 0
+            ? planeMentionedUsers
+            : mentionExtractor.MentionEmailsFromText(comment);
     var mentionedUserDisplays =
         await mentionFormatter.FormatDistinctUsersAsync(
             mentionedUsers,
@@ -768,14 +772,18 @@ static async Task<string> BuildCommentMessage(
             ? string.Join(", ", mentionedUserDisplays)
             : "None");
 
+    var commentInvolvedUsers = mentionExtractor.CommentUsers(
+        data,
+        data,
+        actorUser,
+        originalCommentForExtraction)
+        .Concat(planeMentionedUsers)
+        .ToArray();
+
     await AppendInvolvedUsersAsync(
         message,
         mentionFormatter,
-        mentionExtractor.CommentUsers(
-            data,
-            data,
-            actorUser,
-            originalCommentForExtraction),
+        commentInvolvedUsers,
         cancellationToken);
 
     AddBullet(
