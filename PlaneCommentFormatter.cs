@@ -104,6 +104,34 @@ internal sealed class PlaneCommentFormatter
         return NormalizeText(StripHtml(result.ToString()));
     }
 
+    public IReadOnlyList<PmsUserRef> MentionUsers(string? commentHtml)
+    {
+        if (string.IsNullOrWhiteSpace(commentHtml))
+            return Array.Empty<PmsUserRef>();
+
+        var users = new List<PmsUserRef>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (Match match in MentionComponentRegex.Matches(commentHtml))
+        {
+            var identifier = GetEntityIdentifier(match);
+
+            if (identifier is null ||
+                !_emailByPlaneIdentifier.TryGetValue(identifier, out var email) ||
+                !seen.Add(email))
+            {
+                continue;
+            }
+
+            users.Add(new PmsUserRef(
+                Id: identifier,
+                Email: email,
+                DisplayName: email));
+        }
+
+        return users;
+    }
+
     private static string? GetEntityIdentifier(Match mentionMatch)
     {
         var attributes = mentionMatch.Groups["attributes"].Value;
