@@ -25,6 +25,13 @@ var zulipUserMap = ZulipMentionFormatter.LoadUserMap(
         "./config/zulip-user-map.json"),
     app.Logger);
 
+var planeMentionMap = PlaneMentionMapLoader.Load(
+    LoadJsonConfiguration(
+        "PLANE_MENTION_MAP_FILE",
+        "PLANE_MENTION_MAP_JSON",
+        "./config/plane-mention-map.json"),
+    app.Logger);
+
 var pmsTaskUrlTemplate =
     Environment.GetEnvironmentVariable("PMS_TASK_URL_TEMPLATE")
     ?? "https://pms.hallboard.ir/team/browse/" +
@@ -62,6 +69,11 @@ var zulipMentionFormatter = new ZulipMentionFormatter(
     zulipUserResolver,
     loggerFactory.CreateLogger<ZulipMentionFormatter>(),
     zulipUserMap);
+
+var planeCommentFormatter = new PlaneCommentFormatter(
+    zulipMentionFormatter,
+    planeMentionMap,
+    loggerFactory.CreateLogger<PlaneCommentFormatter>());
 
 var pmsMentionExtractor = new PmsMentionExtractor();
 
@@ -261,6 +273,33 @@ app.MapPost("/plane/{token}", async (
         else if (EqualsIgnoreCase(eventName, "issue_comment") &&
                  EqualsIgnoreCase(action, "created"))
         {
+            app.Logger.LogInformation(
+                "Raw PMS comment webhook payload: {Payload}",
+                Limit(root.GetRawText(), 30000));
+
+            app.Logger.LogInformation(
+                "Raw issue-comment data: {CommentData}",
+                Limit(data.GetRawText(), 20000));
+
+            foreach (var property in new[]
+            {
+                "comment_html",
+                "comment_stripped",
+                "comment",
+                "body",
+                "content",
+                "mentions",
+                "mentioned_users",
+                "mention_users",
+                "user_mentions"
+            })
+            {
+                LogJsonProperty(
+                    app.Logger,
+                    data,
+                    property);
+            }
+
             var issueId = String(data, "issue") ?? "";
 
             /*
@@ -309,6 +348,7 @@ app.MapPost("/plane/{token}", async (
                 taskUrl,
                 pmsMentionExtractor,
                 zulipMentionFormatter,
+                planeCommentFormatter,
                 actorUser,
                 cancellationToken);
         }
@@ -419,6 +459,28 @@ app.MapPost("/plane/{token}", async (
 });
 
 app.Run();
+
+static void LogJsonProperty(
+    ILogger logger,
+    JsonElement element,
+    string property)
+{
+    if (element.ValueKind != JsonValueKind.Object ||
+        !element.TryGetProperty(property, out var value))
+    {
+        logger.LogInformation(
+            "Comment property {Property}: NOT PRESENT",
+            property);
+
+        return;
+    }
+
+    logger.LogInformation(
+        "Comment property {Property}: Kind={Kind}, Value={Value}",
+        property,
+        value.ValueKind,
+        Limit(value.GetRawText(), 10000));
+}
 
 static bool IsDescriptionField(string? field)
 {
@@ -613,17 +675,19 @@ static async Task<string> BuildCommentMessage(
     string? taskUrl,
     PmsMentionExtractor mentionExtractor,
     ZulipMentionFormatter mentionFormatter,
+    PlaneCommentFormatter planeCommentFormatter,
     PmsUserRef actorUser,
     CancellationToken cancellationToken)
 {
     var issueId = String(data, "issue") ?? "";
     var commentId = String(data, "id");
-    var comment = StripHtml(
-        String(data, "comment_html") ??
-        String(data, "comment") ??
-        String(data, "body") ??
-        String(data, "content"));
-        
+    var rawCommentHtml = String(data, "comment_html");
+    var comment = !string.IsNullOrWhiteSpace(rawCommentHtml)
+        ? await planeCommentFormatter.FormatAsync(
+            rawCommentHtml,
+            cancellationToken)
+        : ExtractCommentText(data);
+
     comment = PmsMentionExtractor.NeutralizeBroadcastMentions(comment);
     comment = PmsMentionExtractor.ReplaceTeamMention(comment);
 
@@ -636,6 +700,15 @@ static async Task<string> BuildCommentMessage(
         await mentionFormatter.FormatDistinctUsersAsync(
             mentionedUsers,
             cancellationToken);
+
+    // Some mention-only comments have no readable text because the mention is
+    // represented only in the structured mention metadata.
+    if (string.IsNullOrWhiteSpace(comment) &&
+        mentionedUserDisplays.Count > 0)
+    {
+        comment = string.Join(" ", mentionedUserDisplays);
+    }
+
     var mentionsByEmail = new Dictionary<string, string>(
         StringComparer.OrdinalIgnoreCase);
 
@@ -666,6 +739,9 @@ static async Task<string> BuildCommentMessage(
             ? $"#{cachedIssue.SequenceId} {cachedIssue.Name}"
             : $"{ShortId(issueId)} {cachedIssue.Name}"
         : ShortId(issueId);
+    var authorMention = await mentionFormatter.FormatUserAsync(
+        actorUser,
+        cancellationToken);
 
     var message = new StringBuilder();
 
@@ -678,9 +754,7 @@ static async Task<string> BuildCommentMessage(
     AddBullet(
         message,
         "Author",
-        await mentionFormatter.FormatUserAsync(
-            actorUser,
-            cancellationToken));
+        authorMention);
 
     AddBullet(
         message,
@@ -738,11 +812,14 @@ static async Task<string> BuildCommentMessage(
 
     message.AppendLine();
     message.AppendLine("#### Comment");
+    message.AppendLine();
+    message.AppendLine($"**By:** {authorMention}");
+    message.AppendLine();
 
     message.AppendLine(
         string.IsNullOrWhiteSpace(comment)
             ? "_Empty comment_"
-            : Quote(comment));
+            : comment);
 
     // AppendTechnicalDetails(
     //     message,
@@ -764,6 +841,39 @@ static async Task<string> BuildCommentMessage(
     }
 
     return message.ToString().Trim();
+}
+
+static string ExtractCommentText(JsonElement data)
+{
+    // Plane normally provides comment_stripped as the readable text.
+    var plainTextProperties = new[]
+    {
+        "comment_stripped",
+        "comment",
+        "body",
+        "content"
+    };
+
+    foreach (var property in plainTextProperties)
+    {
+        var value = String(data, property);
+
+        if (!string.IsNullOrWhiteSpace(value))
+            return NormalizeText(StripHtml(value));
+    }
+
+    // Only use HTML after trying the plain-text properties.
+    var commentHtml = String(data, "comment_html");
+
+    if (!string.IsNullOrWhiteSpace(commentHtml))
+    {
+        var stripped = StripHtml(commentHtml);
+
+        if (!string.IsNullOrWhiteSpace(stripped))
+            return NormalizeText(stripped);
+    }
+
+    return "";
 }
 
 static async Task AppendInvolvedUsersAsync(
@@ -1247,7 +1357,7 @@ static async Task AppendCurrentIssueDetails(
 //     string? issueId,
 //     string? commentId = null)
 // {
-//     message.AppendLine();
+//     message.AppendLine();BuildCommentMessage
 //     message.AppendLine("#### Technical details");
 
 //     AddBullet(message, "Task ID", Code(issueId));
@@ -1844,28 +1954,6 @@ static void AddBullet(
 
     message.AppendLine(
         $"* **{EscapeMarkdown(label)}:** {value}");
-}
-
-static string Quote(string value)
-{
-    var normalized = NormalizeText(value);
-
-    return string.Join(
-        "\n",
-        normalized
-            .Split('\n')
-            .Select(line => $"> {line}"));
-}
-
-static string IndentQuote(string value)
-{
-    var normalized = NormalizeText(value);
-
-    return string.Join(
-        "\n",
-        normalized
-            .Split('\n')
-            .Select(line => $"  > {line}"));
 }
 
 static string NormalizeText(string value)

@@ -3,7 +3,7 @@ Build & Push the image:
 docker buildx build \
   --platform linux/amd64 \
   --pull \
-  -t git.hallboard.ir/team/prod_plane-zulip-bridge:1.3.0 \
+  -t git.hallboard.ir/team/prod_plane-zulip-bridge:1.4.0 \
   --push \
   .
 ```

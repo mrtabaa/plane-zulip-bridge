@@ -49,6 +49,23 @@ public sealed class ZulipMentionTests
     }
 
     [Fact]
+    public async Task PlaneCommentFormatter_PreservesHtmlLineBreaks()
+    {
+        var formatter = new PlaneCommentFormatter(
+            new ZulipMentionFormatter(
+                new FakeResolver(),
+                NullLogger<ZulipMentionFormatter>.Instance),
+            new Dictionary<string, string>(),
+            NullLogger<PlaneCommentFormatter>.Instance);
+
+        var result = await formatter.FormatAsync(
+            "<p>first line</p><br>second line<div>third line</div>",
+            CancellationToken.None);
+
+        Assert.Equal("first line\n\nsecond line\nthird line", result);
+    }
+
+    [Fact]
     public async Task ActorEmail_BecomesZulipMention()
     {
         var formatter = Formatter(

@@ -345,6 +345,10 @@ internal sealed class ZulipMentionFormatter
                 "Could not parse ZULIP_USER_MAP_JSON; explicit user mappings are disabled");
         }
 
+        logger.LogInformation(
+            "Loaded {Count} explicit Zulip user mappings",
+            result.Count);
+
         return result;
     }
 
