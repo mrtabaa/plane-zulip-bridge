@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -49,8 +48,10 @@ var projects = BridgeConfiguration.LoadProjects();
  *
  * This cache is in memory and is cleared when the container restarts.
  */
-var issueCache = new ConcurrentDictionary<string, IssueInfo>(
-    StringComparer.OrdinalIgnoreCase);
+var issueCache = IssueCacheStore.Load(
+    Environment.GetEnvironmentVariable("PMS_ISSUE_CACHE_FILE")
+    ?? "./data/pms-issues.json",
+    app.Logger);
 
 var http = new HttpClient
 {
@@ -188,13 +189,13 @@ app.MapPost("/plane/{token}", async (
              */
             if (!string.IsNullOrWhiteSpace(issueId))
             {
-                issueCache[issueId] = new IssueInfo(
+                issueCache.Upsert(new IssueInfo(
                     IssueId: issueId,
                     Name: issueName,
                     SequenceId: sequenceId,
                     ProjectId: projectId,
                     ProjectName: project.Name,
-                    ProjectIdentifier: project.Identifier);
+                    ProjectIdentifier: project.Identifier));
             }
 
             taskUrl = BuildTaskUrl(
@@ -307,7 +308,7 @@ app.MapPost("/plane/{token}", async (
              * A comment payload does not contain sequence_id or task name.
              * Try to retrieve them from the in-memory cache.
              */
-            issueCache.TryGetValue(issueId, out var cachedIssue);
+            issueCache.TryGet(issueId, out var cachedIssue);
 
             if (cachedIssue is not null)
             {
@@ -1912,4 +1913,5 @@ internal sealed record IssueInfo(
     long? SequenceId,
     string ProjectId,
     string ProjectName,
-    string ProjectIdentifier);
+    string ProjectIdentifier,
+    DateTimeOffset CachedAt = default);
