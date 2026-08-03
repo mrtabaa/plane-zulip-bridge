@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -38,6 +37,7 @@ var pmsTaskUrlTemplate =
        "{projectIdentifier}-{sequenceId}/";
 
 var projects = BridgeConfiguration.LoadProjects();
+var notificationSettings = NotificationSettings.Load(app.Logger);
 
 /*
  * Comment webhook payloads contain the issue UUID but not sequence_id.
@@ -57,6 +57,19 @@ var http = new HttpClient
 {
     Timeout = TimeSpan.FromSeconds(15)
 };
+var zulipMessageSender = new ZulipMessageSender(
+    http,
+    zulipUrl,
+    zulipEmail,
+    zulipApiKey,
+    zulipChannel);
+var descriptionDebouncer = new DescriptionNotificationDebouncer(
+    zulipMessageSender,
+    app.Logger,
+    TimeSpan.FromSeconds(
+        notificationSettings.DescriptionDebounceSeconds));
+
+app.Lifetime.ApplicationStopping.Register(descriptionDebouncer.Dispose);
 
 var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
 
@@ -96,7 +109,8 @@ app.MapGet("/health", () => Results.Ok(new
     service = "pms-zulip-bridge",
     configuredProjects = projects.Count,
     cachedIssues = issueCache.Count,
-    taskUrlTemplate = pmsTaskUrlTemplate
+    taskUrlTemplate = pmsTaskUrlTemplate,
+    notifications = notificationSettings
 }));
 
 // Keep this route unchanged for compatibility with the existing webhook.
@@ -173,6 +187,7 @@ app.MapPost("/plane/{token}", async (
         string topic;
         string content;
         string? taskUrl = null;
+        string? debouncedDescriptionIssueId = null;
 
         if (EqualsIgnoreCase(eventName, "issue"))
         {
@@ -209,6 +224,15 @@ app.MapPost("/plane/{token}", async (
 
             if (EqualsIgnoreCase(action, "created"))
             {
+                if (!notificationSettings.IssueCreated)
+                {
+                    return Results.Ok(new
+                    {
+                        ignored = true,
+                        reason = "Issue-created notifications are disabled"
+                    });
+                }
+
                 content = await BuildCreatedIssueMessage(
                     data,
                     actorName,
@@ -229,16 +253,17 @@ app.MapPost("/plane/{token}", async (
             {
                 var changedField = String(activity, "field");
 
-                if (IsDescriptionField(changedField))
+                if (!notificationSettings.ShouldSendUpdate(changedField))
                 {
                     app.Logger.LogInformation(
-                        "Ignored description update for issue {IssueId}",
+                        "Ignored disabled {Field} update notification for issue {IssueId}",
+                        changedField,
                         String(data, "id"));
 
                     return Results.Ok(new
                     {
                         ignored = true,
-                        reason = "Description update"
+                        reason = $"{changedField ?? "Other"} notifications are disabled"
                     });
                 }
 
@@ -258,6 +283,9 @@ app.MapPost("/plane/{token}", async (
                     zulipMentionFormatter,
                     actorUser,
                     cancellationToken);
+
+                if (NotificationSettings.IsDescriptionField(changedField))
+                    debouncedDescriptionIssueId = issueId;
             }
             else
             {
@@ -275,6 +303,15 @@ app.MapPost("/plane/{token}", async (
         else if (EqualsIgnoreCase(eventName, "issue_comment") &&
                  EqualsIgnoreCase(action, "created"))
         {
+            if (!notificationSettings.Comment)
+            {
+                return Results.Ok(new
+                {
+                    ignored = true,
+                    reason = "Comment notifications are disabled"
+                });
+            }
+
             app.Logger.LogInformation(
                 "Raw PMS comment webhook payload: {Payload}",
                 Limit(root.GetRawText(), 30000));
@@ -368,51 +405,31 @@ app.MapPost("/plane/{token}", async (
             });
         }
 
-        using var zulipRequest = new HttpRequestMessage(
-            HttpMethod.Post,
-            $"{zulipUrl}/api/v1/messages");
-
-        var credentials = Convert.ToBase64String(
-            Encoding.UTF8.GetBytes($"{zulipEmail}:{zulipApiKey}"));
-
-        zulipRequest.Headers.Authorization =
-            new AuthenticationHeaderValue("Basic", credentials);
-
-        zulipRequest.Content = new FormUrlEncodedContent(
-            new Dictionary<string, string>
-            {
-                ["type"] = "stream",
-                ["to"] = zulipChannel,
-                ["topic"] = topic,
-                ["content"] = content
-            });
-
-        try
+        if (debouncedDescriptionIssueId is not null)
         {
-            using var response = await http.SendAsync(
-                zulipRequest,
-                cancellationToken);
+            descriptionDebouncer.Schedule(
+                debouncedDescriptionIssueId,
+                topic,
+                content);
 
-            var responseBody = await response.Content.ReadAsStringAsync(
-                cancellationToken);
-
-            if (!response.IsSuccessStatusCode)
+            return Results.Ok(new
             {
-                app.Logger.LogError(
-                    "Zulip returned {Status}: {Body}",
-                    response.StatusCode,
-                    responseBody);
+                ok = true,
+                scheduled = true,
+                debounceSeconds = notificationSettings.DescriptionDebounceSeconds,
+                project = project.Name,
+                topic,
+                taskUrl
+            });
+        }
 
-                return Results.Json(
-                    new
-                    {
-                        error = "Zulip delivery failed",
-                        zulipStatus = (int)response.StatusCode,
-                        zulipResponse = responseBody
-                    },
-                    statusCode: StatusCodes.Status502BadGateway);
-            }
+        var delivery = await zulipMessageSender.SendAsync(
+            topic,
+            content,
+            cancellationToken);
 
+        if (delivery.Success)
+        {
             app.Logger.LogInformation(
                 "Delivered PMS webhook to Zulip. " +
                 "Event={Event}, Action={Action}, Project={Project}, " +
@@ -431,12 +448,15 @@ app.MapPost("/plane/{token}", async (
                 taskUrl
             });
         }
-        catch (OperationCanceledException)
-            when (!cancellationToken.IsCancellationRequested)
-        {
-            app.Logger.LogError(
-                "Timed out while delivering PMS webhook to Zulip");
 
+        app.Logger.LogError(
+            "Zulip delivery failed: Status={Status}, Error={Error}, Body={Body}",
+            delivery.StatusCode,
+            delivery.Error,
+            delivery.ResponseBody);
+
+        if (delivery.Error == "timeout")
+        {
             return Results.Json(
                 new
                 {
@@ -444,19 +464,15 @@ app.MapPost("/plane/{token}", async (
                 },
                 statusCode: StatusCodes.Status502BadGateway);
         }
-        catch (Exception exception)
-        {
-            app.Logger.LogError(
-                exception,
-                "Could not contact Zulip");
 
-            return Results.Json(
-                new
-                {
-                    error = exception.Message
-                },
-                statusCode: StatusCodes.Status502BadGateway);
-        }
+        return Results.Json(
+            new
+            {
+                error = delivery.Error ?? "Zulip delivery failed",
+                zulipStatus = delivery.StatusCode,
+                zulipResponse = delivery.ResponseBody
+            },
+            statusCode: StatusCodes.Status502BadGateway);
     }
 });
 
@@ -482,16 +498,6 @@ static void LogJsonProperty(
         property,
         value.ValueKind,
         Limit(value.GetRawText(), 10000));
-}
-
-static bool IsDescriptionField(string? field)
-{
-    return field is not null &&
-        (
-            field.Equals("description", StringComparison.OrdinalIgnoreCase) ||
-            field.Equals("description_html", StringComparison.OrdinalIgnoreCase) ||
-            field.Equals("description_stripped", StringComparison.OrdinalIgnoreCase)
-        );
 }
 
 static async Task<string> BuildCreatedIssueMessage(
@@ -959,27 +965,27 @@ static async Task AppendChangeDetails(
         return;
     }
 
-    // if (EqualsIgnoreCase(field, "description_html"))
-    // {
-    //     var oldDescription = StripHtml(ValueAsString(oldValue));
-    //     var newDescription = StripHtml(ValueAsString(newValue));
+    if (NotificationSettings.IsDescriptionField(field))
+    {
+        var description =
+            String(data, "description_stripped") ??
+            StripHtml(String(data, "description_html"));
 
-    //     message.AppendLine("* **Previous description:**");
+        if (string.IsNullOrWhiteSpace(description))
+            description = StripHtml(ValueAsString(newValue));
 
-    //     message.AppendLine(
-    //         string.IsNullOrWhiteSpace(oldDescription)
-    //             ? "  _Empty_"
-    //             : IndentQuote(oldDescription));
+        description = PmsMentionExtractor.ReplaceTeamMention(
+            PmsMentionExtractor.NeutralizeBroadcastMentions(description));
 
-    //     message.AppendLine("* **New description:**");
+        message.AppendLine("* **Current description:**");
+        message.AppendLine();
+        message.AppendLine(
+            string.IsNullOrWhiteSpace(description)
+                ? "_Empty_"
+                : description);
 
-    //     message.AppendLine(
-    //         string.IsNullOrWhiteSpace(newDescription)
-    //             ? "  _Empty_"
-    //             : IndentQuote(newDescription));
-
-    //     return;
-    // }
+        return;
+    }
 
     if (EqualsIgnoreCase(field, "priority"))
     {
