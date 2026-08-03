@@ -3,7 +3,23 @@
 BridgeConfiguration.LoadDotEnv();
 
 var builder = WebApplication.CreateBuilder(args);
-var app = builder.Build();
+
+builder.Services.AddHttpClient("Plane", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+})
+.ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+});
+builder.Services.AddHttpClient("Zulip", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+})
+.ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+});
 
 var zulipUrl = BridgeConfiguration.Required("ZULIP_URL").TrimEnd('/');
 var zulipEmail = BridgeConfiguration.Required("ZULIP_BOT_EMAIL");
@@ -13,38 +29,38 @@ var webhookToken = BridgeConfiguration.Required("WEBHOOK_TOKEN");
 var planeApiUrl = BridgeConfiguration.Required("PLANE_API_URL");
 var planeApiKey = BridgeConfiguration.Required("PLANE_API_KEY");
 var planeWorkspaceSlug = BridgeConfiguration.Required("PLANE_WORKSPACE_SLUG");
-var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
-var http = new HttpClient
-{
-    Timeout = TimeSpan.FromSeconds(15)
-};
-
 var planeTaskUrlTemplate = BridgeConfiguration.Required(
     "PLANE_TASK_URL_TEMPLATE");
 
+var app = builder.Build();
+var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
+var httpClientFactory = app.Services.GetRequiredService<IHttpClientFactory>();
+var planeHttp = httpClientFactory.CreateClient("Plane");
+var zulipHttp = httpClientFactory.CreateClient("Zulip");
+
 var projects = await PlaneProjectCatalog.LoadAsync(
-    http,
+    planeHttp,
     planeApiUrl,
     planeApiKey,
     planeWorkspaceSlug,
     loggerFactory.CreateLogger<PlaneProjectCatalog>(),
     CancellationToken.None);
 var planeUsers = await PlaneUserDirectory.LoadAsync(
-    http,
+    planeHttp,
     planeApiUrl,
     planeApiKey,
     planeWorkspaceSlug,
     loggerFactory.CreateLogger<PlaneUserDirectory>(),
     CancellationToken.None);
 var planeWorkItems = new PlaneWorkItemClient(
-    http,
+    planeHttp,
     planeApiUrl,
     planeApiKey,
     planeWorkspaceSlug);
 var notificationSettings = NotificationSettings.Load(app.Logger);
 
 var zulipMessageSender = new ZulipMessageSender(
-    http,
+    zulipHttp,
     zulipUrl,
     zulipEmail,
     zulipApiKey,
@@ -58,7 +74,7 @@ var descriptionDebouncer = new DescriptionNotificationDebouncer(
 app.Lifetime.ApplicationStopping.Register(descriptionDebouncer.Dispose);
 
 var zulipUserResolver = new ZulipUserResolver(
-    http,
+    zulipHttp,
     zulipUrl,
     zulipEmail,
     zulipApiKey,
