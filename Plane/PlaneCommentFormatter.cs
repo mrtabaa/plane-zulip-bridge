@@ -15,16 +15,16 @@ internal sealed class PlaneCommentFormatter
         RegexOptions.Compiled);
 
     private readonly ZulipMentionFormatter _zulipMentionFormatter;
-    private readonly IReadOnlyDictionary<string, string> _emailByPlaneIdentifier;
+    private readonly IPlaneUserDirectory _planeUsers;
     private readonly ILogger<PlaneCommentFormatter> _logger;
 
     public PlaneCommentFormatter(
         ZulipMentionFormatter zulipMentionFormatter,
-        IReadOnlyDictionary<string, string> emailByPlaneIdentifier,
+        IPlaneUserDirectory planeUsers,
         ILogger<PlaneCommentFormatter> logger)
     {
         _zulipMentionFormatter = zulipMentionFormatter;
-        _emailByPlaneIdentifier = emailByPlaneIdentifier;
+        _planeUsers = planeUsers;
         _logger = logger;
     }
 
@@ -59,9 +59,11 @@ internal sealed class PlaneCommentFormatter
                 continue;
             }
 
-            if (!_emailByPlaneIdentifier.TryGetValue(
-                    identifier,
-                    out var email))
+            var email = await _planeUsers.FindEmailAsync(
+                identifier,
+                cancellationToken);
+
+            if (email is null)
             {
                 _logger.LogWarning(
                     "No email mapping exists for Plane mention identifier {Identifier}",
@@ -103,7 +105,9 @@ internal sealed class PlaneCommentFormatter
         return NormalizeText(StripHtml(result.ToString()));
     }
 
-    public IReadOnlyList<PmsUserRef> MentionUsers(string? commentHtml)
+    public async ValueTask<IReadOnlyList<PmsUserRef>> MentionUsersAsync(
+        string? commentHtml,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(commentHtml))
             return Array.Empty<PmsUserRef>();
@@ -115,9 +119,14 @@ internal sealed class PlaneCommentFormatter
         {
             var identifier = GetEntityIdentifier(match);
 
-            if (identifier is null ||
-                !_emailByPlaneIdentifier.TryGetValue(identifier, out var email) ||
-                !seen.Add(email))
+            if (identifier is null)
+                continue;
+
+            var email = await _planeUsers.FindEmailAsync(
+                identifier,
+                cancellationToken);
+
+            if (email is null || !seen.Add(email))
             {
                 continue;
             }

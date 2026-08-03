@@ -19,13 +19,6 @@ var http = new HttpClient
     Timeout = TimeSpan.FromSeconds(15)
 };
 
-var planeMentionMap = PlaneMentionMapLoader.Load(
-    BridgeConfiguration.LoadJsonConfiguration(
-        "PLANE_MENTION_MAP_FILE",
-        "PLANE_MENTION_MAP_JSON",
-        "./config/plane-mention-map.json"),
-    app.Logger);
-
 var pmsTaskUrlTemplate =
     Environment.GetEnvironmentVariable("PMS_TASK_URL_TEMPLATE")
     ?? "https://pms.hallboard.ir/team/browse/" +
@@ -37,6 +30,13 @@ var projects = await PlaneProjectCatalog.LoadAsync(
     planeApiKey,
     planeWorkspaceSlug,
     loggerFactory.CreateLogger<PlaneProjectCatalog>(),
+    CancellationToken.None);
+var planeUsers = await PlaneUserDirectory.LoadAsync(
+    http,
+    planeApiUrl,
+    planeApiKey,
+    planeWorkspaceSlug,
+    loggerFactory.CreateLogger<PlaneUserDirectory>(),
     CancellationToken.None);
 var notificationSettings = NotificationSettings.Load(app.Logger);
 
@@ -81,7 +81,7 @@ var zulipMentionFormatter = new ZulipMentionFormatter(
 
 var planeCommentFormatter = new PlaneCommentFormatter(
     zulipMentionFormatter,
-    planeMentionMap,
+    planeUsers,
     loggerFactory.CreateLogger<PlaneCommentFormatter>());
 
 var pmsMentionExtractor = new PmsMentionExtractor();
@@ -102,6 +102,7 @@ app.MapGet("/health", () => Results.Ok(new
     status = "ok",
     service = "pms-zulip-bridge",
     configuredProjects = projects.Count,
+    configuredPlaneUsers = planeUsers.Count,
     cachedIssues = issueCache.Count,
     taskUrlTemplate = pmsTaskUrlTemplate,
     notifications = notificationSettings

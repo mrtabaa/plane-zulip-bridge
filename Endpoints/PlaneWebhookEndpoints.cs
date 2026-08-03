@@ -622,8 +622,9 @@ internal static class PlaneWebhookEndpoints
                 rawCommentHtml,
                 cancellationToken)
             : ExtractCommentText(data);
-        var planeMentionedUsers = planeCommentFormatter.MentionUsers(
-            rawCommentHtml);
+        var planeMentionedUsers = await planeCommentFormatter.MentionUsersAsync(
+            rawCommentHtml,
+            cancellationToken);
     
         comment = PmsMentionExtractor.NeutralizeBroadcastMentions(comment);
         comment = PmsMentionExtractor.ReplaceTeamMention(comment);

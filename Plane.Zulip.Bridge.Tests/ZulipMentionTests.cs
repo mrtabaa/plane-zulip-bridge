@@ -37,7 +37,7 @@ public sealed class ZulipMentionTests
             new ZulipMentionFormatter(
                 new FakeResolver(),
                 NullLogger<ZulipMentionFormatter>.Instance),
-            new Dictionary<string, string>(),
+            new StaticPlaneUserDirectory(),
             NullLogger<PlaneCommentFormatter>.Instance);
 
         var result = await formatter.FormatAsync(
@@ -47,6 +47,23 @@ public sealed class ZulipMentionTests
         Assert.Equal(
             "first line\n\nsecond line\nthird line\nfourth line",
             result);
+    }
+
+    [Fact]
+    public async Task PlaneCommentMention_UsesApiUserDirectory()
+    {
+        var formatter = new PlaneCommentFormatter(
+            Formatter((
+                "jane@example.com",
+                new ZulipUser(101, "jane@example.com", "Jane Doe"))),
+            new StaticPlaneUserDirectory(("plane-user-id", "jane@example.com")),
+            NullLogger<PlaneCommentFormatter>.Instance);
+
+        var result = await formatter.FormatAsync(
+            "<mention-component entity_identifier=\"plane-user-id\">Jane</mention-component>",
+            CancellationToken.None);
+
+        Assert.Equal("@**Jane Doe**", result);
     }
 
     [Fact]
@@ -378,6 +395,28 @@ public sealed class ZulipMentionTests
             string? email,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult<ZulipUser?>(null);
+    }
+
+    private sealed class StaticPlaneUserDirectory : IPlaneUserDirectory
+    {
+        private readonly IReadOnlyDictionary<string, string> _emails;
+
+        public StaticPlaneUserDirectory(
+            params (string Id, string Email)[] users)
+        {
+            _emails = users.ToDictionary(
+                user => user.Id,
+                user => user.Email,
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        public ValueTask<string?> FindEmailAsync(
+            string? userId,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(
+                userId is not null && _emails.TryGetValue(userId, out var email)
+                    ? email
+                    : null);
     }
 
     private sealed class StaticResolver : IZulipUserResolver
