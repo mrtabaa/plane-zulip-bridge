@@ -11,8 +11,9 @@ internal static class PlaneWebhookEndpoints
         this WebApplication app,
         string webhookToken,
         PlaneProjectCatalog projects,
+        IPlaneUserDirectory planeUsers,
+        PlaneWorkItemClient planeWorkItems,
         string pmsTaskUrlTemplate,
-        IssueCacheStore issueCache,
         NotificationSettings notificationSettings,
         PmsMentionExtractor pmsMentionExtractor,
         ZulipMentionFormatter zulipMentionFormatter,
@@ -67,17 +68,16 @@ internal static class PlaneWebhookEndpoints
                 var activity = Object(root, "activity");
                 var actor = Object(activity, "actor");
         
-                var workspaceId =
-                    String(root, "workspace_id")
-                    ?? String(data, "workspace");
-        
                 var actorName = PersonName(actor);
                 var actorEmail = String(actor, "email");
-                var actorId = String(actor, "id");
-                var actorUser = new PmsUserRef(
-                    actorId,
-                    actorEmail,
-                    actorName);
+                var actorId =
+                    String(actor, "id") ??
+                    String(data, "actor") ??
+                    String(data, "created_by");
+                var actorUser = await HydratePlaneUserAsync(
+                    planeUsers,
+                    new PmsUserRef(actorId, actorEmail, actorName),
+                    cancellationToken);
         
                 var projectId = String(data, "project") ?? "";
                 var project = await projects.ResolveAsync(
@@ -108,28 +108,14 @@ internal static class PlaneWebhookEndpoints
                         ? $"#{sequenceId}"
                         : ShortId(issueId);
 
-                    issueCache.TryGet(issueId, out var cachedIssue);
-
-                    var issueCreator =
-                        PmsMentionExtractor.IssueCreator(data) ??
-                        (EqualsIgnoreCase(action, "created")
-                            ? actorUser
-                            : CachedCreator(cachedIssue));
-        
-                    /*
-                     * Save issue information for later comment webhooks.
-                     */
-                    if (!string.IsNullOrWhiteSpace(issueId))
-                    {
-                        issueCache.Upsert(new IssueInfo(
-                            IssueId: issueId,
-                            Name: issueName,
-                            SequenceId: sequenceId,
-                            ProjectId: projectId,
-                            CreatorId: issueCreator?.Id,
-                            CreatorEmail: issueCreator?.Email,
-                            CreatorDisplayName: issueCreator?.DisplayName));
-                    }
+                    var issueCreator = await ResolveIssueCreatorAsync(
+                        data,
+                        EqualsIgnoreCase(action, "created") ? actorUser : null,
+                        planeUsers,
+                        planeWorkItems,
+                        projectId,
+                        issueId,
+                        cancellationToken);
         
                     taskUrl = BuildTaskUrl(
                         pmsTaskUrlTemplate,
@@ -153,17 +139,14 @@ internal static class PlaneWebhookEndpoints
         
                         content = await BuildCreatedIssueMessage(
                             data,
-                            actorName,
-                            actorEmail,
-                            actorId,
                             project,
                             projectId,
                             issueReference,
-                            webhookId,
-                            workspaceId,
                             taskUrl,
                             pmsMentionExtractor,
                             zulipMentionFormatter,
+                            planeUsers,
+                            planeWorkItems,
                             actorUser,
                             issueCreator,
                             cancellationToken);
@@ -189,17 +172,14 @@ internal static class PlaneWebhookEndpoints
                         content = await BuildUpdatedIssueMessage(
                             data,
                             activity,
-                            actorName,
-                            actorEmail,
-                            actorId,
                             project,
                             projectId,
                             issueReference,
-                            webhookId,
-                            workspaceId,
                             taskUrl,
                             pmsMentionExtractor,
                             zulipMentionFormatter,
+                            planeUsers,
+                            planeWorkItems,
                             actorUser,
                             issueCreator,
                             cancellationToken);
@@ -261,53 +241,35 @@ internal static class PlaneWebhookEndpoints
         
                     var issueId = String(data, "issue") ?? "";
         
-                    /*
-                     * A comment payload does not contain sequence_id or task name.
-                     * Try to retrieve them from the in-memory cache.
-                     */
-                    issueCache.TryGet(issueId, out var cachedIssue);
-        
-                    if (cachedIssue is not null)
-                    {
-                        project = await projects.ResolveAsync(
-                            cachedIssue.ProjectId,
-                            cancellationToken);
+                    var workItem = await planeWorkItems.GetAsync(
+                        projectId,
+                        issueId,
+                        cancellationToken);
+                    var issueReference = workItem.SequenceId is not null
+                        ? $"#{workItem.SequenceId}"
+                        : ShortId(issueId);
 
-                        var cachedReference = cachedIssue.SequenceId is not null
-                            ? $"#{cachedIssue.SequenceId}"
-                            : ShortId(issueId);
-        
-                        topic = BuildTopic(
-                            project.Name,
-                            $"{cachedReference}: {cachedIssue.Name}");
-        
-                        taskUrl = BuildTaskUrl(
-                            pmsTaskUrlTemplate,
-                            project.Identifier,
-                            cachedIssue.SequenceId);
-                    }
-                    else
-                    {
-                        /*
-                         * The cache can be empty after a container restart.
-                         * The comment will still be sent, but the payload alone
-                         * cannot provide PERSKHAB-285 because it has no sequence_id.
-                         */
-                        topic = BuildTopic(
-                            project.Name,
-                            $"Task {ShortId(issueId)}");
-                    }
+                    topic = BuildTopic(
+                        project.Name,
+                        $"{issueReference}: {workItem.Name}");
+
+                    taskUrl = BuildTaskUrl(
+                        pmsTaskUrlTemplate,
+                        project.Identifier,
+                        workItem.SequenceId);
+
+                    var attachmentNames = await planeWorkItems.GetAttachmentNamesAsync(
+                        projectId,
+                        issueId,
+                        String(data, "id"),
+                        cancellationToken);
         
                     content = await BuildCommentMessage(
                         data,
-                        actorName,
-                        actorEmail,
-                        actorId,
                         project,
                         projectId,
-                        cachedIssue,
-                        webhookId,
-                        workspaceId,
+                        workItem,
+                        attachmentNames,
                         taskUrl,
                         pmsMentionExtractor,
                         zulipMentionFormatter,
@@ -425,23 +387,19 @@ internal static class PlaneWebhookEndpoints
     
     static async Task<string> BuildCreatedIssueMessage(
         JsonElement data,
-        string actorName,
-        string? actorEmail,
-        string? actorId,
         ProjectInfo project,
         string projectId,
         string issueReference,
-        string? webhookId,
-        string? workspaceId,
         string? taskUrl,
         PmsMentionExtractor mentionExtractor,
         ZulipMentionFormatter mentionFormatter,
+        IPlaneUserDirectory planeUsers,
+        PlaneWorkItemClient planeWorkItems,
         PmsUserRef actorUser,
         PmsUserRef? issueCreator,
         CancellationToken cancellationToken)
     {
         var issueName = String(data, "name") ?? "Unnamed task";
-        // var description = Description(data);
     
         var message = new StringBuilder();
     
@@ -464,7 +422,7 @@ internal static class PlaneWebhookEndpoints
         AddBullet(
             message,
             "Project",
-            ProjectDisplay(project, projectId));
+            ProjectDisplay(project));
     
         await AppendInvolvedUsersAsync(
             message,
@@ -476,22 +434,11 @@ internal static class PlaneWebhookEndpoints
             message,
             data,
             mentionFormatter,
+            planeUsers,
+            planeWorkItems,
+            projectId,
             cancellationToken,
             issueCreator);
-    
-        // if (!string.IsNullOrWhiteSpace(description))
-        // {
-        //     message.AppendLine();
-        //     message.AppendLine("#### Description");
-        //     message.AppendLine(Quote(description));
-        // }
-    
-        // AppendTechnicalDetails(
-        //     message,
-        //     webhookId,
-        //     workspaceId,
-        //     projectId,
-        //     String(data, "id"));
     
         AppendTaskLink(message, taskUrl);
     
@@ -501,17 +448,14 @@ internal static class PlaneWebhookEndpoints
     static async Task<string> BuildUpdatedIssueMessage(
         JsonElement data,
         JsonElement activity,
-        string actorName,
-        string? actorEmail,
-        string? actorId,
         ProjectInfo project,
         string projectId,
         string issueReference,
-        string? webhookId,
-        string? workspaceId,
         string? taskUrl,
         PmsMentionExtractor mentionExtractor,
         ZulipMentionFormatter mentionFormatter,
+        IPlaneUserDirectory planeUsers,
+        PlaneWorkItemClient planeWorkItems,
         PmsUserRef actorUser,
         PmsUserRef? issueCreator,
         CancellationToken cancellationToken)
@@ -540,7 +484,7 @@ internal static class PlaneWebhookEndpoints
         AddBullet(
             message,
             "Project",
-            ProjectDisplay(project, projectId));
+            ProjectDisplay(project));
     
         AddBullet(
             message,
@@ -562,6 +506,9 @@ internal static class PlaneWebhookEndpoints
             activity,
             field,
             mentionFormatter,
+            planeUsers,
+            planeWorkItems,
+            projectId,
             cancellationToken);
     
         message.AppendLine();
@@ -571,26 +518,12 @@ internal static class PlaneWebhookEndpoints
             message,
             data,
             mentionFormatter,
+            planeUsers,
+            planeWorkItems,
+            projectId,
             cancellationToken,
             issueCreator,
             includeHeading: false);
-    
-        // var description = Description(data);
-    
-        // if (!string.IsNullOrWhiteSpace(description) &&
-        //     !EqualsIgnoreCase(field, "description_html"))
-        // {
-        //     message.AppendLine();
-        //     message.AppendLine("#### Current description");
-        //     message.AppendLine(Quote(description));
-        // }
-    
-        // AppendTechnicalDetails(
-        //     message,
-        //     webhookId,
-        //     workspaceId,
-        //     projectId,
-        //     String(data, "id"));
     
         AppendTaskLink(message, taskUrl);
     
@@ -599,14 +532,10 @@ internal static class PlaneWebhookEndpoints
     
     static async Task<string> BuildCommentMessage(
         JsonElement data,
-        string actorName,
-        string? actorEmail,
-        string? actorId,
         ProjectInfo project,
         string projectId,
-        IssueInfo? cachedIssue,
-        string? webhookId,
-        string? workspaceId,
+        PlaneWorkItem workItem,
+        IReadOnlyList<string> attachmentNames,
         string? taskUrl,
         PmsMentionExtractor mentionExtractor,
         ZulipMentionFormatter mentionFormatter,
@@ -615,7 +544,6 @@ internal static class PlaneWebhookEndpoints
         CancellationToken cancellationToken)
     {
         var issueId = String(data, "issue") ?? "";
-        var commentId = String(data, "id");
         var rawCommentHtml = String(data, "comment_html");
         var comment = !string.IsNullOrWhiteSpace(rawCommentHtml)
             ? await planeCommentFormatter.FormatAsync(
@@ -674,11 +602,9 @@ internal static class PlaneWebhookEndpoints
                 mentionsByEmail);
         }
     
-        var title = cachedIssue is not null
-            ? cachedIssue.SequenceId is not null
-                ? $"#{cachedIssue.SequenceId} {cachedIssue.Name}"
-                : $"{ShortId(issueId)} {cachedIssue.Name}"
-            : ShortId(issueId);
+        var title = workItem.SequenceId is not null
+            ? $"#{workItem.SequenceId} {workItem.Name}"
+            : $"{ShortId(issueId)} {workItem.Name}";
         var authorMention = await mentionFormatter.FormatUserAsync(
             actorUser,
             cancellationToken);
@@ -699,7 +625,7 @@ internal static class PlaneWebhookEndpoints
         AddBullet(
             message,
             "Project",
-            ProjectDisplay(project, projectId));
+            ProjectDisplay(project));
     
         AddBullet(
             message,
@@ -747,12 +673,12 @@ internal static class PlaneWebhookEndpoints
                 FormatDate(editedAt));
         }
     
-        var attachments = Attachments(data);
-    
         AddBullet(
             message,
             "Attachments",
-            attachments);
+            attachmentNames.Count == 0
+                ? "None"
+                : string.Join(", ", attachmentNames.Select(EscapeMarkdown)));
     
         message.AppendLine();
         message.AppendLine("#### Comment");
@@ -765,24 +691,7 @@ internal static class PlaneWebhookEndpoints
                 ? "_Empty comment_"
                 : comment);
     
-        // AppendTechnicalDetails(
-        //     message,
-        //     webhookId,
-        //     workspaceId,
-        //     projectId,
-        //     issueId,
-        //     commentId);
-    
         AppendTaskLink(message, taskUrl);
-    
-        if (string.IsNullOrWhiteSpace(taskUrl))
-        {
-            message.AppendLine();
-            message.AppendLine(
-                "_A direct task link was unavailable because the comment " +
-                "webhook did not contain the task sequence number and the " +
-                "task was not present in the bridge's in-memory cache._");
-        }
     
         return message.ToString().Trim();
     }
@@ -838,6 +747,70 @@ internal static class PlaneWebhookEndpoints
             "Involved users",
             string.Join(", ", displays));
     }
+
+    static async ValueTask<PmsUserRef> HydratePlaneUserAsync(
+        IPlaneUserDirectory planeUsers,
+        PmsUserRef user,
+        CancellationToken cancellationToken)
+    {
+        var apiUser = await planeUsers.FindUserAsync(
+            user.Id,
+            cancellationToken);
+
+        if (apiUser is null)
+            return user;
+
+        var displayName = user.DisplayName;
+
+        if (string.IsNullOrWhiteSpace(displayName) ||
+            displayName.Equals("Someone", StringComparison.OrdinalIgnoreCase))
+        {
+            displayName = apiUser.DisplayName;
+        }
+
+        return new PmsUserRef(
+            user.Id ?? apiUser.Id,
+            user.Email ?? apiUser.Email,
+            displayName);
+    }
+
+    static async ValueTask<PmsUserRef?> ResolveIssueCreatorAsync(
+        JsonElement data,
+        PmsUserRef? fallback,
+        IPlaneUserDirectory planeUsers,
+        PlaneWorkItemClient planeWorkItems,
+        string projectId,
+        string issueId,
+        CancellationToken cancellationToken)
+    {
+        var creator = PmsMentionExtractor.IssueCreator(data);
+        var creatorId = creator?.Id ?? String(data, "created_by");
+
+        if (string.IsNullOrWhiteSpace(creatorId) && fallback is null)
+        {
+            creatorId = (await planeWorkItems.GetAsync(
+                projectId,
+                issueId,
+                cancellationToken)).CreatorId;
+        }
+
+        var apiCreator = await planeUsers.FindUserAsync(
+            creatorId,
+            cancellationToken);
+
+        if (creator is null)
+            return apiCreator ?? fallback;
+
+        return new PmsUserRef(
+            creator.Id ?? apiCreator?.Id,
+            creator.Email ?? apiCreator?.Email,
+            creator.DisplayName ?? apiCreator?.DisplayName);
+    }
+
+    static string NameList(IReadOnlyList<string> names) =>
+        names.Count == 0
+            ? "None"
+            : string.Join(", ", names.Select(EscapeMarkdown));
     
     static async Task AppendChangeDetails(
         StringBuilder message,
@@ -845,6 +818,9 @@ internal static class PlaneWebhookEndpoints
         JsonElement activity,
         string? field,
         ZulipMentionFormatter mentionFormatter,
+        IPlaneUserDirectory planeUsers,
+        PlaneWorkItemClient planeWorkItems,
+        string projectId,
         CancellationToken cancellationToken)
     {
         var oldValue = Property(activity, "old_value");
@@ -855,12 +831,20 @@ internal static class PlaneWebhookEndpoints
             var currentState = Object(data, "state");
     
             var oldStateName = GetStateDisplayName(
-                activity,
-                "old");
+                    activity,
+                    "old") ??
+                await planeWorkItems.FindStateNameAsync(
+                    projectId,
+                    JsonIdentifier(oldValue),
+                    cancellationToken);
     
             var newStateName =
                 String(currentState, "name")
-                ?? GetStateDisplayName(activity, "new");
+                ?? GetStateDisplayName(activity, "new")
+                ?? await planeWorkItems.FindStateNameAsync(
+                    projectId,
+                    String(currentState, "id") ?? JsonIdentifier(newValue),
+                    cancellationToken);
     
             // Only show the old state when its readable name is included
             // in the webhook. Never show its UUID as a fallback.
@@ -888,6 +872,7 @@ internal static class PlaneWebhookEndpoints
                 oldValue,
                 newValue,
                 mentionFormatter,
+                planeUsers,
                 cancellationToken);
     
             return;
@@ -963,20 +948,33 @@ internal static class PlaneWebhookEndpoints
     
         if (EqualsIgnoreCase(field, "label_ids"))
         {
+            var oldLabels = await planeWorkItems.FindLabelNamesAsync(
+                projectId,
+                StringArray(oldValue),
+                cancellationToken);
+            var newLabels = await planeWorkItems.FindLabelNamesAsync(
+                projectId,
+                StringArray(newValue),
+                cancellationToken);
+
             AddBullet(
                 message,
-                "Previous label IDs",
-                JsonValueDisplay(oldValue));
+                "Previous labels",
+                NameList(oldLabels));
     
             AddBullet(
                 message,
-                "New label IDs",
-                JsonValueDisplay(newValue));
+                "New labels",
+                NameList(newLabels));
     
             AddBullet(
                 message,
                 "Current labels",
-                Labels(data));
+                await LabelsAsync(
+                    data,
+                    planeWorkItems,
+                    projectId,
+                    cancellationToken));
     
             return;
         }
@@ -1090,6 +1088,7 @@ internal static class PlaneWebhookEndpoints
         JsonElement oldValue,
         JsonElement newValue,
         ZulipMentionFormatter mentionFormatter,
+        IPlaneUserDirectory planeUsers,
         CancellationToken cancellationToken)
     {
         var oldIds = StringArray(oldValue);
@@ -1097,6 +1096,7 @@ internal static class PlaneWebhookEndpoints
         var currentAssignees = await AssigneeDictionary(
             data,
             mentionFormatter,
+            planeUsers,
             cancellationToken);
     
         var addedIds = newIds
@@ -1111,34 +1111,40 @@ internal static class PlaneWebhookEndpoints
                 StringComparer.OrdinalIgnoreCase)
             .ToArray();
     
-        var addedNames = addedIds
-            .Where(currentAssignees.ContainsKey)
-            .Select(id => currentAssignees[id])
-            .ToArray();
+        var addedNames = await ResolvePlaneUserDisplaysAsync(
+            addedIds,
+            currentAssignees,
+            mentionFormatter,
+            planeUsers,
+            cancellationToken);
+        var removedNames = await ResolvePlaneUserDisplaysAsync(
+            removedIds,
+            currentAssignees,
+            mentionFormatter,
+            planeUsers,
+            cancellationToken);
     
         if (addedIds.Length > 0)
         {
             AddBullet(
                 message,
                 "Added assignees",
-                addedNames.Length > 0
-                    ? string.Join(", ", addedNames)
+            addedNames.Count > 0
+                ? string.Join(", ", addedNames)
                     : CountDisplay(
                         addedIds.Length,
                         "assignee added",
                         "assignees added"));
         }
     
-        /*
-         * The current issue data generally does not include information
-         * about removed assignees. Show the count instead of their UUIDs.
-         */
         if (removedIds.Length > 0)
         {
             AddBullet(
                 message,
                 "Removed assignees",
-                CountDisplay(
+            removedNames.Count > 0
+                ? string.Join(", ", removedNames)
+                : CountDisplay(
                     removedIds.Length,
                     "assignee removed",
                     "assignees removed"));
@@ -1150,6 +1156,7 @@ internal static class PlaneWebhookEndpoints
             await Assignees(
                 data,
                 mentionFormatter,
+                planeUsers,
                 cancellationToken));
     }
     
@@ -1163,28 +1170,15 @@ internal static class PlaneWebhookEndpoints
             : $"{count} {plural}";
     }
 
-    static PmsUserRef? CachedCreator(IssueInfo? issue)
-    {
-        if (issue is null ||
-            (string.IsNullOrWhiteSpace(issue.CreatorId) &&
-             string.IsNullOrWhiteSpace(issue.CreatorEmail) &&
-             string.IsNullOrWhiteSpace(issue.CreatorDisplayName)))
-        {
-            return null;
-        }
-
-        return new PmsUserRef(
-            issue.CreatorId,
-            issue.CreatorEmail,
-            issue.CreatorDisplayName);
-    }
-    
     static async Task AppendCurrentIssueDetails(
         StringBuilder message,
         JsonElement data,
         ZulipMentionFormatter mentionFormatter,
+        IPlaneUserDirectory planeUsers,
+        PlaneWorkItemClient planeWorkItems,
+        string projectId,
         CancellationToken cancellationToken,
-        PmsUserRef? cachedCreator = null,
+        PmsUserRef? issueCreator = null,
         bool includeHeading = true)
     {
         if (includeHeading)
@@ -1195,7 +1189,11 @@ internal static class PlaneWebhookEndpoints
     
         var state = Object(data, "state");
     
-        var stateName = String(state, "name");
+        var stateName = String(state, "name")
+            ?? await planeWorkItems.FindStateNameAsync(
+                projectId,
+                String(state, "id") ?? String(data, "state_id"),
+                cancellationToken);
         var stateGroup = String(state, "group");
         var stateColor = String(state, "color");
     
@@ -1238,12 +1236,17 @@ internal static class PlaneWebhookEndpoints
             await Assignees(
                 data,
                 mentionFormatter,
+                planeUsers,
                 cancellationToken));
     
         AddBullet(
             message,
             "Labels",
-            Labels(data));
+            await LabelsAsync(
+                data,
+                planeWorkItems,
+                projectId,
+                cancellationToken));
     
         var points =
             Number(data, "point")
@@ -1264,7 +1267,7 @@ internal static class PlaneWebhookEndpoints
             "Target date",
             FormatDate(String(data, "target_date")));
 
-        var creator = PmsMentionExtractor.IssueCreator(data) ?? cachedCreator;
+        var creator = PmsMentionExtractor.IssueCreator(data) ?? issueCreator;
 
         AddBullet(
             message,
@@ -1321,24 +1324,6 @@ internal static class PlaneWebhookEndpoints
         }
     }
     
-    // static void AppendTechnicalDetails(
-    //     StringBuilder message,
-    //     string? webhookId,
-    //     string? workspaceId,
-    //     string? projectId,
-    //     string? issueId,
-    //     string? commentId = null)
-    // {
-    //     message.AppendLine();BuildCommentMessage
-    //     message.AppendLine("#### Technical details");
-    
-    //     AddBullet(message, "Task ID", Code(issueId));
-    //     AddBullet(message, "Comment ID", Code(commentId));
-    //     AddBullet(message, "Project ID", Code(projectId));
-    //     AddBullet(message, "Workspace ID", Code(workspaceId));
-    //     AddBullet(message, "Webhook ID", Code(webhookId));
-    // }
-    
     static void AppendTaskLink(
         StringBuilder message,
         string? taskUrl)
@@ -1379,14 +1364,8 @@ internal static class PlaneWebhookEndpoints
             : null;
     }
     
-    static string ProjectDisplay(
-        ProjectInfo project,
-        string? projectId)
-    {
-        // Project UUID and project identifier are not shown in the body.
-        // The project UUID remains under Technical details.
-        return EscapeMarkdown(project.Name);
-    }
+    static string ProjectDisplay(ProjectInfo project) =>
+        EscapeMarkdown(project.Name);
     
     static string BuildTopic(
         string? projectName,
@@ -1444,6 +1423,7 @@ internal static class PlaneWebhookEndpoints
     static async Task<string> Assignees(
         JsonElement data,
         ZulipMentionFormatter mentionFormatter,
+        IPlaneUserDirectory planeUsers,
         CancellationToken cancellationToken)
     {
         if (data.ValueKind != JsonValueKind.Object ||
@@ -1453,15 +1433,29 @@ internal static class PlaneWebhookEndpoints
             return "Unassigned";
         }
     
-        var assigneeUsers = array
-            .EnumerateArray()
-            .Select(assignee => new PmsUserRef(
-                String(assignee, "id"),
-                String(assignee, "email"),
-                PersonName(assignee)))
-            .ToArray();
+        var assigneeUsers = new List<PmsUserRef>();
+
+        foreach (var assignee in array.EnumerateArray())
+        {
+            var id = assignee.ValueKind == JsonValueKind.String
+                ? assignee.GetString()
+                : String(assignee, "id");
+            var apiUser = await planeUsers.FindUserAsync(id, cancellationToken);
+
+            if (assignee.ValueKind == JsonValueKind.Object)
+            {
+                assigneeUsers.Add(new PmsUserRef(
+                    id ?? apiUser?.Id,
+                    String(assignee, "email") ?? apiUser?.Email,
+                    PersonName(assignee) ?? apiUser?.DisplayName));
+            }
+            else if (apiUser is not null)
+            {
+                assigneeUsers.Add(apiUser);
+            }
+        }
     
-        if (assigneeUsers.Length == 0)
+        if (assigneeUsers.Count == 0)
             return "Unassigned";
     
         var assignees = await mentionFormatter.FormatDistinctUsersAsync(
@@ -1476,6 +1470,7 @@ internal static class PlaneWebhookEndpoints
     static async Task<Dictionary<string, string>> AssigneeDictionary(
         JsonElement data,
         ZulipMentionFormatter mentionFormatter,
+        IPlaneUserDirectory planeUsers,
         CancellationToken cancellationToken)
     {
         var result = new Dictionary<string, string>(
@@ -1490,25 +1485,60 @@ internal static class PlaneWebhookEndpoints
     
         foreach (var assignee in array.EnumerateArray())
         {
-            var id = String(assignee, "id");
+            var id = assignee.ValueKind == JsonValueKind.String
+                ? assignee.GetString()
+                : String(assignee, "id");
     
             if (string.IsNullOrWhiteSpace(id))
                 continue;
     
-            var display = await mentionFormatter.FormatUserAsync(
-                new PmsUserRef(
+            var apiUser = await planeUsers.FindUserAsync(id, cancellationToken);
+            var user = assignee.ValueKind == JsonValueKind.Object
+                ? new PmsUserRef(
                     id,
-                    String(assignee, "email"),
-                    PersonName(assignee)),
-                cancellationToken);
+                    String(assignee, "email") ?? apiUser?.Email,
+                    PersonName(assignee) ?? apiUser?.DisplayName)
+                : apiUser ?? new PmsUserRef(id, null, null);
+            var display = await mentionFormatter.FormatUserAsync(user, cancellationToken);
     
             result[id] = display;
         }
     
         return result;
     }
+
+    static async Task<IReadOnlyList<string>> ResolvePlaneUserDisplaysAsync(
+        IEnumerable<string> userIds,
+        IReadOnlyDictionary<string, string> currentAssignees,
+        ZulipMentionFormatter mentionFormatter,
+        IPlaneUserDirectory planeUsers,
+        CancellationToken cancellationToken)
+    {
+        var values = new List<string>();
+
+        foreach (var userId in userIds.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (currentAssignees.TryGetValue(userId, out var currentDisplay))
+            {
+                values.Add(currentDisplay);
+                continue;
+            }
+
+            var user = await planeUsers.FindUserAsync(userId, cancellationToken);
+            if (user is not null)
+            {
+                values.Add(await mentionFormatter.FormatUserAsync(user, cancellationToken));
+            }
+        }
+
+        return values;
+    }
     
-    static string Labels(JsonElement data)
+    static async Task<string> LabelsAsync(
+        JsonElement data,
+        PlaneWorkItemClient planeWorkItems,
+        string projectId,
+        CancellationToken cancellationToken)
     {
         if (data.ValueKind != JsonValueKind.Object ||
             !data.TryGetProperty("labels", out var labels) ||
@@ -1517,83 +1547,42 @@ internal static class PlaneWebhookEndpoints
             return "None";
         }
     
-        var values = labels
-            .EnumerateArray()
-            .Select(label =>
-            {
-                if (label.ValueKind == JsonValueKind.String)
-                {
-                    var value = label.GetString();
-    
-                    // Do not show label UUIDs.
-                    return IsReadableName(value)
-                        ? EscapeMarkdown(value)
-                        : null;
-                }
-    
-                if (label.ValueKind != JsonValueKind.Object)
-                    return null;
-    
-                var name = String(label, "name");
-    
-                return string.IsNullOrWhiteSpace(name)
-                    ? null
-                    : EscapeMarkdown(name);
-            })
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .ToArray();
-    
-        return values.Length == 0
-            ? "None"
-            : string.Join(", ", values!);
-    }
-    
-    static string Attachments(JsonElement data)
-    {
-        if (data.ValueKind != JsonValueKind.Object ||
-            !data.TryGetProperty("attachments", out var attachments) ||
-            attachments.ValueKind != JsonValueKind.Array)
+        var values = new List<string>();
+        var unresolvedIds = new List<string>();
+
+        foreach (var label in labels.EnumerateArray())
         {
-            return "None";
-        }
-    
-        var names = attachments
-            .EnumerateArray()
-            .Select(attachment =>
+            if (label.ValueKind == JsonValueKind.String)
             {
-                if (attachment.ValueKind != JsonValueKind.Object)
-                    return null;
+                var value = label.GetString();
+                if (IsReadableName(value))
+                    values.Add(value!);
+                else if (!string.IsNullOrWhiteSpace(value))
+                    unresolvedIds.Add(value);
+            }
+            else if (label.ValueKind == JsonValueKind.Object)
+            {
+                var name = String(label, "name");
+                if (!string.IsNullOrWhiteSpace(name))
+                    values.Add(name);
+                else
+                {
+                    var id = String(label, "id");
+                    if (!string.IsNullOrWhiteSpace(id))
+                        unresolvedIds.Add(id);
+                }
+            }
+        }
+
+        values.AddRange(await planeWorkItems.FindLabelNamesAsync(
+            projectId,
+            unresolvedIds,
+            cancellationToken));
     
-                return
-                    String(attachment, "name")
-                    ?? String(attachment, "asset_name")
-                    ?? String(attachment, "file_name");
-            })
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Select(name => EscapeMarkdown(name))
-            .ToArray();
-    
-        if (names.Length > 0)
-            return string.Join(", ", names);
-    
-        // Report attachment presence without exposing UUIDs.
-        return attachments.GetArrayLength() > 0
-            ? CountDisplay(
-                attachments.GetArrayLength(),
-                "attachment",
-                "attachments")
-            : "None";
+        return values.Count == 0
+            ? "None"
+            : string.Join(", ", values.Distinct(StringComparer.OrdinalIgnoreCase).Select(EscapeMarkdown));
     }
-    
-    // static string Description(JsonElement data)
-    // {
-    //     var stripped = String(data, "description_stripped");
-    
-    //     if (!string.IsNullOrWhiteSpace(stripped))
-    //         return stripped.Trim();
-    
-    //     return StripHtml(String(data, "description_html"));
-    // }
     
     static string FriendlyFieldName(string? field)
     {
@@ -1601,7 +1590,7 @@ internal static class PlaneWebhookEndpoints
         {
             "state_id" => "Status",
             "assignee_ids" => "Assignees",
-            // "description_html" => "Description",
+            "description_html" => "Description",
             "priority" => "Priority",
             "name" => "Title",
             "start_date" => "Start date",
@@ -1716,6 +1705,16 @@ internal static class PlaneWebhookEndpoints
             JsonValueKind.Null => "",
             JsonValueKind.Undefined => "",
             _ => value.GetRawText()
+        };
+    }
+
+    static string? JsonIdentifier(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Object => String(value, "id"),
+            _ => null
         };
     }
     

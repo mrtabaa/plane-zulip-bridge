@@ -59,14 +59,14 @@ internal sealed class PlaneCommentFormatter
                 continue;
             }
 
-            var email = await _planeUsers.FindEmailAsync(
+            var user = await _planeUsers.FindUserAsync(
                 identifier,
                 cancellationToken);
 
-            if (email is null)
+            if (user is null)
             {
                 _logger.LogWarning(
-                    "No email mapping exists for Plane mention identifier {Identifier}",
+                    "Plane API returned no user for mention identifier {Identifier}",
                     identifier);
 
                 // Do not allow an unresolved mention-only comment to become empty.
@@ -78,10 +78,7 @@ internal sealed class PlaneCommentFormatter
             }
 
             var mention = await _zulipMentionFormatter.FormatUserAsync(
-                new PmsUserRef(
-                    Id: identifier,
-                    Email: email,
-                    DisplayName: email),
+                user,
                 cancellationToken);
 
             replacements.Add((match, mention));
@@ -122,19 +119,18 @@ internal sealed class PlaneCommentFormatter
             if (identifier is null)
                 continue;
 
-            var email = await _planeUsers.FindEmailAsync(
+            var user = await _planeUsers.FindUserAsync(
                 identifier,
                 cancellationToken);
 
-            if (email is null || !seen.Add(email))
+            var key = user?.Email ?? user?.Id;
+
+            if (user is null || string.IsNullOrWhiteSpace(key) || !seen.Add(key))
             {
                 continue;
             }
 
-            users.Add(new PmsUserRef(
-                Id: identifier,
-                Email: email,
-                DisplayName: email));
+            users.Add(user);
         }
 
         return users;

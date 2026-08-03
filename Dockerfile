@@ -12,7 +12,6 @@ COPY Models ./Models
 COPY Notifications ./Notifications
 COPY Plane ./Plane
 COPY Properties ./Properties
-COPY Storage ./Storage
 COPY Zulip ./Zulip
 RUN dotnet publish -c Release -o /app --no-restore
 

@@ -13,34 +13,6 @@ internal static class BridgeConfiguration
         return value;
     }
 
-    public static string? LoadJsonConfiguration(
-        string fileEnvironmentVariable,
-        string inlineEnvironmentVariable,
-        string defaultFile)
-    {
-        var configuredFile = Environment.GetEnvironmentVariable(
-            fileEnvironmentVariable);
-
-        if (!string.IsNullOrWhiteSpace(configuredFile))
-        {
-            return ReadConfigurationFile(
-                configuredFile.Trim(),
-                fileEnvironmentVariable);
-        }
-
-        var inlineJson = Environment.GetEnvironmentVariable(
-            inlineEnvironmentVariable);
-
-        if (!string.IsNullOrWhiteSpace(inlineJson))
-            return inlineJson;
-
-        var defaultPath = ResolveConfigurationPath(defaultFile);
-
-        return File.Exists(defaultPath)
-            ? File.ReadAllText(defaultPath)
-            : null;
-    }
-
     public static void LoadDotEnv(string fileName = ".env")
     {
         var paths = new[]
@@ -96,36 +68,6 @@ internal static class BridgeConfiguration
 
             Environment.SetEnvironmentVariable(key, value);
         }
-    }
-
-    private static string ReadConfigurationFile(
-        string configuredPath,
-        string environmentVariable)
-    {
-        var path = ResolveConfigurationPath(configuredPath);
-
-        if (!File.Exists(path))
-        {
-            throw new InvalidOperationException(
-                $"Configuration file '{configuredPath}' from " +
-                $"{environmentVariable} was not found at '{path}'.");
-        }
-
-        return File.ReadAllText(path);
-    }
-
-    private static string ResolveConfigurationPath(string configuredPath)
-    {
-        if (Path.IsPathRooted(configuredPath))
-            return configuredPath;
-
-        var currentDirectoryPath = Path.GetFullPath(
-            configuredPath,
-            Directory.GetCurrentDirectory());
-
-        return File.Exists(currentDirectoryPath)
-            ? currentDirectoryPath
-            : Path.GetFullPath(configuredPath, AppContext.BaseDirectory);
     }
 
 }

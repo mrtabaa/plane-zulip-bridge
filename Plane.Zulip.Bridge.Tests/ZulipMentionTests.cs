@@ -410,12 +410,12 @@ public sealed class ZulipMentionTests
                 StringComparer.OrdinalIgnoreCase);
         }
 
-        public ValueTask<string?> FindEmailAsync(
+        public ValueTask<PmsUserRef?> FindUserAsync(
             string? userId,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult(
                 userId is not null && _emails.TryGetValue(userId, out var email)
-                    ? email
+                    ? new PmsUserRef(userId, email, email)
                     : null);
     }
 

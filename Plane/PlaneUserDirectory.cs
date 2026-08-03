@@ -3,7 +3,7 @@ using System.Text.Json;
 
 internal interface IPlaneUserDirectory
 {
-    ValueTask<string?> FindEmailAsync(
+    ValueTask<PmsUserRef?> FindUserAsync(
         string? userId,
         CancellationToken cancellationToken);
 }
@@ -18,7 +18,7 @@ internal sealed class PlaneUserDirectory : IPlaneUserDirectory
     private readonly string _apiKey;
     private readonly string _workspaceSlug;
     private readonly ILogger<PlaneUserDirectory> _logger;
-    private readonly ConcurrentDictionary<string, string> _emailByUserId =
+    private readonly ConcurrentDictionary<string, PmsUserRef> _usersById =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
@@ -38,7 +38,7 @@ internal sealed class PlaneUserDirectory : IPlaneUserDirectory
         _logger = logger;
     }
 
-    public int Count => _emailByUserId.Count;
+    public int Count => _usersById.Count;
 
     public static async Task<PlaneUserDirectory> LoadAsync(
         HttpClient http,
@@ -59,7 +59,7 @@ internal sealed class PlaneUserDirectory : IPlaneUserDirectory
         return directory;
     }
 
-    public async ValueTask<string?> FindEmailAsync(
+    public async ValueTask<PmsUserRef?> FindUserAsync(
         string? userId,
         CancellationToken cancellationToken)
     {
@@ -68,14 +68,14 @@ internal sealed class PlaneUserDirectory : IPlaneUserDirectory
 
         await RefreshAsync(cancellationToken, force: false);
 
-        if (_emailByUserId.TryGetValue(userId, out var email))
-            return email;
+        if (_usersById.TryGetValue(userId, out var user))
+            return user;
 
         // Refresh immediately for users added since the last directory load.
         await RefreshAsync(cancellationToken, force: true);
 
-        return _emailByUserId.TryGetValue(userId, out email)
-            ? email
+        return _usersById.TryGetValue(userId, out user)
+            ? user
             : null;
     }
 
@@ -93,7 +93,7 @@ internal sealed class PlaneUserDirectory : IPlaneUserDirectory
             if (!force && DateTimeOffset.UtcNow - _refreshedAt < RefreshInterval)
                 return;
 
-            var loaded = new Dictionary<string, string>(
+            var loaded = new Dictionary<string, PmsUserRef>(
                 StringComparer.OrdinalIgnoreCase);
             string? cursor = null;
 
@@ -115,9 +115,17 @@ internal sealed class PlaneUserDirectory : IPlaneUserDirectory
                     var id = JsonString(member, "id")?.Trim();
                     var email = ZulipUserResolver.NormalizeEmail(
                         JsonString(member, "email"));
+                    var displayName =
+                        JsonString(member, "display_name") ??
+                        FullName(member);
 
-                    if (!string.IsNullOrWhiteSpace(id) && email is not null)
-                        loaded[id] = email;
+                    if (!string.IsNullOrWhiteSpace(id))
+                    {
+                        loaded[id] = new PmsUserRef(
+                            id,
+                            email,
+                            displayName);
+                    }
                 }
 
                 cursor = root.ValueKind == JsonValueKind.Object &&
@@ -131,19 +139,19 @@ internal sealed class PlaneUserDirectory : IPlaneUserDirectory
             if (loaded.Count == 0)
             {
                 throw new InvalidOperationException(
-                    "Plane returned no workspace members with email addresses.");
+                    "Plane returned no workspace members.");
             }
 
-            _emailByUserId.Clear();
+            _usersById.Clear();
 
             foreach (var item in loaded)
-                _emailByUserId[item.Key] = item.Value;
+                _usersById[item.Key] = item.Value;
 
             _refreshedAt = DateTimeOffset.UtcNow;
 
             _logger.LogInformation(
                 "Loaded {Count} users from Plane API for mention resolution",
-                _emailByUserId.Count);
+                _usersById.Count);
         }
         finally
         {
@@ -204,6 +212,14 @@ internal sealed class PlaneUserDirectory : IPlaneUserDirectory
         value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
+
+    private static string? FullName(JsonElement member)
+    {
+        var name = $"{JsonString(member, "first_name")} " +
+            JsonString(member, "last_name");
+
+        return string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+    }
 
     private static string Limit(string value, int maximumLength) =>
         value.Length <= maximumLength

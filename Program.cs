@@ -38,21 +38,12 @@ var planeUsers = await PlaneUserDirectory.LoadAsync(
     planeWorkspaceSlug,
     loggerFactory.CreateLogger<PlaneUserDirectory>(),
     CancellationToken.None);
+var planeWorkItems = new PlaneWorkItemClient(
+    http,
+    planeApiUrl,
+    planeApiKey,
+    planeWorkspaceSlug);
 var notificationSettings = NotificationSettings.Load(app.Logger);
-
-/*
- * Comment webhook payloads contain the issue UUID but not sequence_id.
- *
- * Whenever an issue create/update webhook is received, its UUID, sequence
- * number, title, and project are cached. A later comment webhook can then
- * use the same Zulip topic and task URL.
- *
- * This cache is in memory and is cleared when the container restarts.
- */
-var issueCache = IssueCacheStore.Load(
-    Environment.GetEnvironmentVariable("PMS_ISSUE_CACHE_FILE")
-    ?? "./data/pms-issues.json",
-    app.Logger);
 
 var zulipMessageSender = new ZulipMessageSender(
     http,
@@ -103,7 +94,6 @@ app.MapGet("/health", () => Results.Ok(new
     service = "pms-zulip-bridge",
     configuredProjects = projects.Count,
     configuredPlaneUsers = planeUsers.Count,
-    cachedIssues = issueCache.Count,
     taskUrlTemplate = pmsTaskUrlTemplate,
     notifications = notificationSettings
 }));
@@ -111,8 +101,9 @@ app.MapGet("/health", () => Results.Ok(new
 app.MapPlaneWebhook(
     webhookToken,
     projects,
+    planeUsers,
+    planeWorkItems,
     pmsTaskUrlTemplate,
-    issueCache,
     notificationSettings,
     pmsMentionExtractor,
     zulipMentionFormatter,

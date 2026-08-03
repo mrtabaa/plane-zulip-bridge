@@ -25,11 +25,12 @@ public sealed class PlaneUserDirectoryTests
             NullLogger<PlaneUserDirectory>.Instance,
             CancellationToken.None);
 
-        var email = await directory.FindEmailAsync(
+        var user = await directory.FindUserAsync(
             "plane-user-id",
             CancellationToken.None);
 
-        Assert.Equal("user@example.com", email);
+        Assert.Equal("user@example.com", user?.Email);
+        Assert.Equal("User", user?.DisplayName);
         Assert.Equal(1, directory.Count);
         Assert.Equal("plane_api_secret", handler.ApiKey);
         Assert.Equal(
