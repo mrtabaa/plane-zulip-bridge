@@ -1,6 +1,6 @@
 Build and push the image (set the release tag first):
 ```bash
-IMAGE_TAG=2.1.0
+IMAGE_TAG=5.4.0
 docker buildx build \
   --platform linux/amd64 \
   --pull \
