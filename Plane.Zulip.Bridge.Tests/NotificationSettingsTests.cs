@@ -61,7 +61,8 @@ public sealed class NotificationSettingsTests
         Draft: category == "draft",
         Description: category == "description",
         OtherUpdates: false,
-        DescriptionDebounceSeconds: 45);
+        DescriptionDebounceSeconds: 45,
+        AssigneeDebounceSeconds: 45);
 
     private static NotificationSettings AllUpdateFlagsDisabled(
         bool otherUpdates = false) => new(
@@ -77,5 +78,6 @@ public sealed class NotificationSettingsTests
         Draft: false,
         Description: false,
         OtherUpdates: otherUpdates,
-        DescriptionDebounceSeconds: 45);
+        DescriptionDebounceSeconds: 45,
+        AssigneeDebounceSeconds: 45);
 }

@@ -19,8 +19,8 @@ email, and sends messages to a Zulip stream.
 - `Plane/PlaneCommentFormatter.cs` converts Plane comment HTML and mentions.
 - `Zulip/ZulipUserResolver.cs` loads Zulip users from the Zulip API.
 - `Zulip/ZulipMessageSender.cs` delivers stream messages.
-- `Notifications/DescriptionNotificationDebouncer.cs` debounces description
-  updates in memory.
+- `Notifications/NotificationDebouncer.cs` independently debounces description
+  and assignee updates in memory.
 
 There are no JSON mapping files or persistent project, user, mention, or issue
 caches. Do not reintroduce them unless the user explicitly changes this design.
@@ -43,8 +43,10 @@ ZULIP_CHANNEL=0-pms
 WEBHOOK_TOKEN=REPLACE_ME
 ```
 
-Notification variables use the `PLANE_NOTIFY_*` prefix. Description debounce is
-configured with `PLANE_DESCRIPTION_DEBOUNCE_SECONDS`.
+Notification variables use the `PLANE_NOTIFY_*` prefix. Description and assignee
+debounce periods are configured with `PLANE_DESCRIPTION_DEBOUNCE_SECONDS` and
+`PLANE_ASSIGNEE_DEBOUNCE_SECONDS`. The assignee delay defaults to the configured
+description delay when omitted.
 
 Do not restore legacy `PMS_*`, mapping-file, or cache-file variables.
 
@@ -87,3 +89,6 @@ environments.
 - The bridge intentionally supports one Plane workspace per deployment.
 - Known Plane activity field aliases are mapped to their dedicated
   `PLANE_NOTIFY_*` flags and must not fall through to `PLANE_NOTIFY_OTHER_UPDATES`.
+- Description and assignee updates are independently delivered after their
+  configured quiet periods; a newer update of the same type replaces the pending
+  notification for that issue.

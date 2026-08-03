@@ -1,33 +1,33 @@
 using System.Collections.Concurrent;
 
-internal sealed class DescriptionNotificationDebouncer : IDisposable
+internal sealed class NotificationDebouncer : IDisposable
 {
     private readonly ConcurrentDictionary<string, CancellationTokenSource>
         _pending = new(StringComparer.OrdinalIgnoreCase);
     private readonly ZulipMessageSender _sender;
     private readonly ILogger _logger;
-    private readonly TimeSpan _delay;
 
-    public DescriptionNotificationDebouncer(
+    public NotificationDebouncer(
         ZulipMessageSender sender,
-        ILogger logger,
-        TimeSpan delay)
+        ILogger logger)
     {
         _sender = sender;
         _logger = logger;
-        _delay = delay;
     }
 
     public void Schedule(
+        string notificationType,
         string issueId,
         string topic,
-        string content)
+        string content,
+        TimeSpan delay)
     {
+        var key = $"{notificationType}:{issueId}";
         var cancellation = new CancellationTokenSource();
         CancellationTokenSource? replaced = null;
 
         _pending.AddOrUpdate(
-            issueId,
+            key,
             cancellation,
             (_, existing) =>
             {
@@ -39,9 +39,12 @@ internal sealed class DescriptionNotificationDebouncer : IDisposable
         replaced?.Dispose();
 
         _ = DeliverAfterDelayAsync(
+            key,
+            notificationType,
             issueId,
             topic,
             content,
+            delay,
             cancellation);
     }
 
@@ -57,14 +60,17 @@ internal sealed class DescriptionNotificationDebouncer : IDisposable
     }
 
     private async Task DeliverAfterDelayAsync(
+        string key,
+        string notificationType,
         string issueId,
         string topic,
         string content,
+        TimeSpan delay,
         CancellationTokenSource cancellation)
     {
         try
         {
-            await Task.Delay(_delay, cancellation.Token);
+            await Task.Delay(delay, cancellation.Token);
             var result = await _sender.SendAsync(
                 topic,
                 content,
@@ -73,13 +79,15 @@ internal sealed class DescriptionNotificationDebouncer : IDisposable
             if (result.Success)
             {
                 _logger.LogInformation(
-                    "Delivered debounced description notification for issue {IssueId}",
+                    "Delivered debounced {NotificationType} notification for issue {IssueId}",
+                    notificationType,
                     issueId);
             }
             else
             {
                 _logger.LogError(
-                    "Could not deliver debounced description notification for issue {IssueId}: Status={Status}, Error={Error}, Body={Body}",
+                    "Could not deliver debounced {NotificationType} notification for issue {IssueId}: Status={Status}, Error={Error}, Body={Body}",
+                    notificationType,
                     issueId,
                     result.StatusCode,
                     result.Error,
@@ -88,14 +96,14 @@ internal sealed class DescriptionNotificationDebouncer : IDisposable
         }
         catch (OperationCanceledException)
         {
-            // A newer edit replaced this pending notification.
+            // A newer update of the same type replaced this pending notification.
         }
         finally
         {
-            if (_pending.TryGetValue(issueId, out var current) &&
+            if (_pending.TryGetValue(key, out var current) &&
                 ReferenceEquals(current, cancellation))
             {
-                _pending.TryRemove(issueId, out _);
+                _pending.TryRemove(key, out _);
                 cancellation.Dispose();
             }
         }

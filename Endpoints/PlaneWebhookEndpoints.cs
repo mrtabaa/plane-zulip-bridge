@@ -19,7 +19,7 @@ internal static class PlaneWebhookEndpoints
         ZulipMentionFormatter zulipMentionFormatter,
         PlaneCommentFormatter planeCommentFormatter,
         ZulipMessageSender zulipMessageSender,
-        DescriptionNotificationDebouncer descriptionDebouncer)
+        NotificationDebouncer notificationDebouncer)
     {
         // Keep this route unchanged for compatibility with the existing webhook.
         app.MapPost("/plane/{token}", async (
@@ -96,7 +96,9 @@ internal static class PlaneWebhookEndpoints
                 string topic;
                 string content;
                 string? taskUrl = null;
-                string? debouncedDescriptionIssueId = null;
+                string? debouncedIssueId = null;
+                string? debouncedNotificationType = null;
+                int? debounceSeconds = null;
         
                 if (EqualsIgnoreCase(eventName, "issue"))
                 {
@@ -185,7 +187,17 @@ internal static class PlaneWebhookEndpoints
                             cancellationToken);
         
                         if (NotificationSettings.IsDescriptionField(changedField))
-                            debouncedDescriptionIssueId = issueId;
+                        {
+                            debouncedIssueId = issueId;
+                            debouncedNotificationType = "description";
+                            debounceSeconds = notificationSettings.DescriptionDebounceSeconds;
+                        }
+                        else if (NotificationSettings.IsAssigneeField(changedField))
+                        {
+                            debouncedIssueId = issueId;
+                            debouncedNotificationType = "assignee";
+                            debounceSeconds = notificationSettings.AssigneeDebounceSeconds;
+                        }
                     }
                     else
                     {
@@ -264,18 +276,23 @@ internal static class PlaneWebhookEndpoints
                     });
                 }
         
-                if (debouncedDescriptionIssueId is not null)
+                if (debouncedIssueId is not null &&
+                    debouncedNotificationType is not null &&
+                    debounceSeconds is not null)
                 {
-                    descriptionDebouncer.Schedule(
-                        debouncedDescriptionIssueId,
+                    notificationDebouncer.Schedule(
+                        debouncedNotificationType,
+                        debouncedIssueId,
                         topic,
-                        content);
+                        content,
+                        TimeSpan.FromSeconds(debounceSeconds.Value));
         
                     return Results.Ok(new
                     {
                         ok = true,
                         scheduled = true,
-                        debounceSeconds = notificationSettings.DescriptionDebounceSeconds,
+                        notificationType = debouncedNotificationType,
+                        debounceSeconds,
                         project = project.Name,
                         topic,
                         taskUrl

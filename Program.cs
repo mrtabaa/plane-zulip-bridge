@@ -65,13 +65,11 @@ var zulipMessageSender = new ZulipMessageSender(
     zulipEmail,
     zulipApiKey,
     zulipChannel);
-var descriptionDebouncer = new DescriptionNotificationDebouncer(
+var notificationDebouncer = new NotificationDebouncer(
     zulipMessageSender,
-    app.Logger,
-    TimeSpan.FromSeconds(
-        notificationSettings.DescriptionDebounceSeconds));
+    app.Logger);
 
-app.Lifetime.ApplicationStopping.Register(descriptionDebouncer.Dispose);
+app.Lifetime.ApplicationStopping.Register(notificationDebouncer.Dispose);
 
 var zulipUserResolver = new ZulipUserResolver(
     zulipHttp,
@@ -123,6 +121,6 @@ app.MapPlaneWebhook(
     zulipMentionFormatter,
     planeCommentFormatter,
     zulipMessageSender,
-    descriptionDebouncer);
+    notificationDebouncer);
 
 app.Run();

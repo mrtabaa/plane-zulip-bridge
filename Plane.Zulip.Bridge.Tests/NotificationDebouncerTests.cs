@@ -1,0 +1,103 @@
+using System.Collections.Concurrent;
+using System.Net;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+public sealed class NotificationDebouncerTests
+{
+    [Fact]
+    public async Task NewerAssigneeUpdate_ReplacesPendingAssigneeNotification()
+    {
+        var handler = new RecordingHandler(expectedRequests: 1);
+        using var debouncer = CreateDebouncer(handler);
+
+        debouncer.Schedule(
+            "assignee",
+            "issue-id",
+            "topic",
+            "first selection",
+            TimeSpan.FromMilliseconds(100));
+        debouncer.Schedule(
+            "assignee",
+            "issue-id",
+            "topic",
+            "final selection",
+            TimeSpan.FromMilliseconds(20));
+
+        await handler.Completed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.Delay(150);
+
+        var request = Assert.Single(handler.RequestBodies);
+        Assert.Contains("final+selection", request, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DescriptionAndAssigneeUpdates_AreDebouncedIndependently()
+    {
+        var handler = new RecordingHandler(expectedRequests: 2);
+        using var debouncer = CreateDebouncer(handler);
+
+        debouncer.Schedule(
+            "description",
+            "issue-id",
+            "topic",
+            "description update",
+            TimeSpan.FromMilliseconds(20));
+        debouncer.Schedule(
+            "assignee",
+            "issue-id",
+            "topic",
+            "assignee update",
+            TimeSpan.FromMilliseconds(20));
+
+        await handler.Completed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(2, handler.RequestBodies.Count);
+    }
+
+    private static NotificationDebouncer CreateDebouncer(
+        HttpMessageHandler handler)
+    {
+        var sender = new ZulipMessageSender(
+            new HttpClient(handler),
+            "https://zulip.example.com",
+            "bot@example.com",
+            "secret",
+            "plane");
+
+        return new NotificationDebouncer(
+            sender,
+            NullLogger.Instance);
+    }
+
+    private sealed class RecordingHandler : HttpMessageHandler
+    {
+        private readonly int _expectedRequests;
+        private int _requestCount;
+
+        public RecordingHandler(int expectedRequests)
+        {
+            _expectedRequests = expectedRequests;
+        }
+
+        public ConcurrentQueue<string> RequestBodies { get; } = new();
+        public TaskCompletionSource Completed { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestBodies.Enqueue(
+                await request.Content!.ReadAsStringAsync(cancellationToken));
+
+            if (Interlocked.Increment(ref _requestCount) == _expectedRequests)
+                Completed.TrySetResult();
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"result\":\"success\"}")
+            };
+        }
+    }
+}
