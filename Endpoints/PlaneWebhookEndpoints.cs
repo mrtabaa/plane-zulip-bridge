@@ -10,7 +10,7 @@ internal static class PlaneWebhookEndpoints
     public static void MapPlaneWebhook(
         this WebApplication app,
         string webhookToken,
-        IReadOnlyDictionary<string, ProjectInfo> projects,
+        PlaneProjectCatalog projects,
         string pmsTaskUrlTemplate,
         IssueCacheStore issueCache,
         NotificationSettings notificationSettings,
@@ -80,7 +80,9 @@ internal static class PlaneWebhookEndpoints
                     actorName);
         
                 var projectId = String(data, "project") ?? "";
-                var project = BridgeConfiguration.ResolveProject(projectId, projects);
+                var project = await projects.ResolveAsync(
+                    projectId,
+                    cancellationToken);
         
                 app.Logger.LogInformation(
                     "Received PMS webhook: Event={Event}, Action={Action}, " +
@@ -124,8 +126,6 @@ internal static class PlaneWebhookEndpoints
                             Name: issueName,
                             SequenceId: sequenceId,
                             ProjectId: projectId,
-                            ProjectName: project.Name,
-                            ProjectIdentifier: project.Identifier,
                             CreatorId: issueCreator?.Id,
                             CreatorEmail: issueCreator?.Email,
                             CreatorDisplayName: issueCreator?.DisplayName));
@@ -269,17 +269,21 @@ internal static class PlaneWebhookEndpoints
         
                     if (cachedIssue is not null)
                     {
+                        project = await projects.ResolveAsync(
+                            cachedIssue.ProjectId,
+                            cancellationToken);
+
                         var cachedReference = cachedIssue.SequenceId is not null
                             ? $"#{cachedIssue.SequenceId}"
                             : ShortId(issueId);
         
                         topic = BuildTopic(
-                            cachedIssue.ProjectName,
+                            project.Name,
                             $"{cachedReference}: {cachedIssue.Name}");
         
                         taskUrl = BuildTaskUrl(
                             pmsTaskUrlTemplate,
-                            cachedIssue.ProjectIdentifier,
+                            project.Identifier,
                             cachedIssue.SequenceId);
                     }
                     else

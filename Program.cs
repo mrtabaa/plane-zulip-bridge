@@ -10,6 +10,15 @@ var zulipEmail = BridgeConfiguration.Required("ZULIP_BOT_EMAIL");
 var zulipApiKey = BridgeConfiguration.Required("ZULIP_BOT_API_KEY");
 var zulipChannel = BridgeConfiguration.Required("ZULIP_CHANNEL");
 var webhookToken = BridgeConfiguration.Required("WEBHOOK_TOKEN");
+var planeApiUrl = BridgeConfiguration.Required("PLANE_API_URL");
+var planeApiKey = BridgeConfiguration.Required("PLANE_API_KEY");
+var planeWorkspaceSlug = BridgeConfiguration.Required("PLANE_WORKSPACE_SLUG");
+var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
+var http = new HttpClient
+{
+    Timeout = TimeSpan.FromSeconds(15)
+};
+
 var zulipUserMap = ZulipMentionFormatter.LoadUserMap(
     BridgeConfiguration.LoadJsonConfiguration(
         "ZULIP_USER_MAP_FILE",
@@ -29,7 +38,13 @@ var pmsTaskUrlTemplate =
     ?? "https://pms.hallboard.ir/team/browse/" +
        "{projectIdentifier}-{sequenceId}/";
 
-var projects = BridgeConfiguration.LoadProjects();
+var projects = await PlaneProjectCatalog.LoadAsync(
+    http,
+    planeApiUrl,
+    planeApiKey,
+    planeWorkspaceSlug,
+    loggerFactory.CreateLogger<PlaneProjectCatalog>(),
+    CancellationToken.None);
 var notificationSettings = NotificationSettings.Load(app.Logger);
 
 /*
@@ -46,10 +61,6 @@ var issueCache = IssueCacheStore.Load(
     ?? "./data/pms-issues.json",
     app.Logger);
 
-var http = new HttpClient
-{
-    Timeout = TimeSpan.FromSeconds(15)
-};
 var zulipMessageSender = new ZulipMessageSender(
     http,
     zulipUrl,
@@ -63,8 +74,6 @@ var descriptionDebouncer = new DescriptionNotificationDebouncer(
         notificationSettings.DescriptionDebounceSeconds));
 
 app.Lifetime.ApplicationStopping.Register(descriptionDebouncer.Dispose);
-
-var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
 
 var zulipUserResolver = new ZulipUserResolver(
     http,
