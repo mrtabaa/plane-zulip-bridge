@@ -19,13 +19,6 @@ var http = new HttpClient
     Timeout = TimeSpan.FromSeconds(15)
 };
 
-var zulipUserMap = ZulipMentionFormatter.LoadUserMap(
-    BridgeConfiguration.LoadJsonConfiguration(
-        "ZULIP_USER_MAP_FILE",
-        "ZULIP_USER_MAP_JSON",
-        "./config/zulip-user-map.json"),
-    app.Logger);
-
 var planeMentionMap = PlaneMentionMapLoader.Load(
     BridgeConfiguration.LoadJsonConfiguration(
         "PLANE_MENTION_MAP_FILE",
@@ -84,8 +77,7 @@ var zulipUserResolver = new ZulipUserResolver(
 
 var zulipMentionFormatter = new ZulipMentionFormatter(
     zulipUserResolver,
-    loggerFactory.CreateLogger<ZulipMentionFormatter>(),
-    zulipUserMap);
+    loggerFactory.CreateLogger<ZulipMentionFormatter>());
 
 var planeCommentFormatter = new PlaneCommentFormatter(
     zulipMentionFormatter,

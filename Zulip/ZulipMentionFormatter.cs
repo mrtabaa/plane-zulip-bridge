@@ -1,21 +1,14 @@
-using System.Text.Json;
-
 internal sealed class ZulipMentionFormatter
 {
     private readonly IZulipUserResolver _resolver;
     private readonly ILogger<ZulipMentionFormatter> _logger;
-    private readonly IReadOnlyDictionary<string, string> _userMap;
 
     public ZulipMentionFormatter(
         IZulipUserResolver resolver,
-        ILogger<ZulipMentionFormatter> logger,
-        IReadOnlyDictionary<string, string>? userMap = null)
+        ILogger<ZulipMentionFormatter> logger)
     {
         _resolver = resolver;
         _logger = logger;
-        _userMap = userMap ??
-            new Dictionary<string, string>(
-                StringComparer.OrdinalIgnoreCase);
     }
 
     public async ValueTask<string> FormatUserAsync(
@@ -26,15 +19,6 @@ internal sealed class ZulipMentionFormatter
 
         if (normalizedEmail is not null)
         {
-            if (_userMap.TryGetValue(normalizedEmail, out var mappedFullName) &&
-                !IsBroadcastName(mappedFullName))
-            {
-                return Mention(new ZulipUser(
-                    null,
-                    normalizedEmail,
-                    mappedFullName));
-            }
-
             ZulipUser? zulipUser = null;
 
             try
@@ -64,58 +48,6 @@ internal sealed class ZulipMentionFormatter
         }
 
         return PlainUser(user);
-    }
-
-    internal static Dictionary<string, string> LoadUserMap(
-        string? json,
-        ILogger logger)
-    {
-        var result = new Dictionary<string, string>(
-            StringComparer.OrdinalIgnoreCase);
-
-        if (string.IsNullOrWhiteSpace(json))
-            return result;
-
-        try
-        {
-            using var document = JsonDocument.Parse(json);
-
-            if (document.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                throw new InvalidOperationException(
-                    "ZULIP_USER_MAP_JSON must be a JSON object.");
-            }
-
-            foreach (var property in document.RootElement.EnumerateObject())
-            {
-                var email = ZulipUserResolver.NormalizeEmail(property.Name);
-                var fullName = property.Value.ValueKind == JsonValueKind.String
-                    ? property.Value.GetString()?.Trim()
-                    : null;
-
-                if (email is null || string.IsNullOrWhiteSpace(fullName))
-                {
-                    logger.LogWarning(
-                        "Ignoring invalid Zulip user map entry for {Email}",
-                        property.Name);
-                    continue;
-                }
-
-                result[email] = fullName;
-            }
-        }
-        catch (Exception exception)
-        {
-            logger.LogWarning(
-                exception,
-                "Could not parse ZULIP_USER_MAP_JSON; explicit user mappings are disabled");
-        }
-
-        logger.LogInformation(
-            "Loaded {Count} explicit Zulip user mappings",
-            result.Count);
-
-        return result;
     }
 
     public async ValueTask<IReadOnlyList<string>> FormatDistinctUsersAsync(
@@ -196,4 +128,3 @@ internal sealed class ZulipMentionFormatter
             : $"name:{user.DisplayName.Trim()}";
     }
 }
-

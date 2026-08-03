@@ -31,24 +31,6 @@ public sealed class ZulipMentionTests
     }
 
     [Fact]
-    public async Task ExplicitUserMap_BecomesZulipMentionWithoutDirectoryMatch()
-    {
-        var userMap = ZulipMentionFormatter.LoadUserMap(
-            "{\"faranak@hallboard.ir\":\"Faranak - Scrum Master\"}",
-            NullLogger.Instance);
-        var formatter = new ZulipMentionFormatter(
-            new FakeResolver(),
-            NullLogger<ZulipMentionFormatter>.Instance,
-            userMap);
-
-        var result = await formatter.FormatUserAsync(
-            new PmsUserRef("pms-1", "FARANAK@hallboard.ir", "faranak"),
-            CancellationToken.None);
-
-        Assert.Equal("@**Faranak - Scrum Master**", result);
-    }
-
-    [Fact]
     public async Task PlaneCommentFormatter_PreservesHtmlLineBreaks()
     {
         var formatter = new PlaneCommentFormatter(
