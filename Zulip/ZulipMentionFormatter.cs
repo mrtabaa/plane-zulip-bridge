@@ -32,7 +32,7 @@ internal sealed class ZulipMentionFormatter
             {
                 _logger.LogWarning(
                     exception,
-                    "Could not resolve PMS user email {Email} to a Zulip user",
+                    "Could not resolve Plane user email {Email} to a Zulip user",
                     normalizedEmail);
             }
 
@@ -43,7 +43,7 @@ internal sealed class ZulipMentionFormatter
             }
 
             _logger.LogWarning(
-                "Could not resolve PMS user email {Email} to a Zulip user",
+                "Could not resolve Plane user email {Email} to a Zulip user",
                 normalizedEmail);
         }
 

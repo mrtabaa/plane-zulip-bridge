@@ -19,10 +19,8 @@ var http = new HttpClient
     Timeout = TimeSpan.FromSeconds(15)
 };
 
-var pmsTaskUrlTemplate =
-    Environment.GetEnvironmentVariable("PMS_TASK_URL_TEMPLATE")
-    ?? "https://pms.hallboard.ir/team/browse/" +
-       "{projectIdentifier}-{sequenceId}/";
+var planeTaskUrlTemplate = BridgeConfiguration.Required(
+    "PLANE_TASK_URL_TEMPLATE");
 
 var projects = await PlaneProjectCatalog.LoadAsync(
     http,
@@ -94,7 +92,7 @@ app.MapGet("/health", () => Results.Ok(new
     service = "pms-zulip-bridge",
     configuredProjects = projects.Count,
     configuredPlaneUsers = planeUsers.Count,
-    taskUrlTemplate = pmsTaskUrlTemplate,
+    taskUrlTemplate = planeTaskUrlTemplate,
     notifications = notificationSettings
 }));
 
@@ -103,7 +101,7 @@ app.MapPlaneWebhook(
     projects,
     planeUsers,
     planeWorkItems,
-    pmsTaskUrlTemplate,
+    planeTaskUrlTemplate,
     notificationSettings,
     pmsMentionExtractor,
     zulipMentionFormatter,

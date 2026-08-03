@@ -13,7 +13,7 @@ internal static class PlaneWebhookEndpoints
         PlaneProjectCatalog projects,
         IPlaneUserDirectory planeUsers,
         PlaneWorkItemClient planeWorkItems,
-        string pmsTaskUrlTemplate,
+        string planeTaskUrlTemplate,
         NotificationSettings notificationSettings,
         PmsMentionExtractor pmsMentionExtractor,
         ZulipMentionFormatter zulipMentionFormatter,
@@ -30,7 +30,7 @@ internal static class PlaneWebhookEndpoints
             if (!TokenMatches(token, webhookToken))
             {
                 app.Logger.LogWarning(
-                    "Rejected PMS webhook with an invalid token from {RemoteIp}",
+                    "Rejected Plane webhook with an invalid token from {RemoteIp}",
                     request.HttpContext.Connection.RemoteIpAddress);
         
                 return Results.Unauthorized();
@@ -48,7 +48,7 @@ internal static class PlaneWebhookEndpoints
             {
                 app.Logger.LogWarning(
                     exception,
-                    "Received invalid PMS webhook JSON");
+                    "Received invalid Plane webhook JSON");
         
                 return Results.BadRequest(new
                 {
@@ -85,7 +85,7 @@ internal static class PlaneWebhookEndpoints
                     cancellationToken);
         
                 app.Logger.LogInformation(
-                    "Received PMS webhook: Event={Event}, Action={Action}, " +
+                    "Received Plane webhook: Event={Event}, Action={Action}, " +
                     "Project={Project}, ProjectId={ProjectId}, WebhookId={WebhookId}",
                     eventName,
                     action,
@@ -118,7 +118,7 @@ internal static class PlaneWebhookEndpoints
                         cancellationToken);
         
                     taskUrl = BuildTaskUrl(
-                        pmsTaskUrlTemplate,
+                        planeTaskUrlTemplate,
                         project.Identifier,
                         sequenceId);
         
@@ -190,7 +190,7 @@ internal static class PlaneWebhookEndpoints
                     else
                     {
                         app.Logger.LogInformation(
-                            "Ignored unsupported PMS issue action: {Action}",
+                            "Ignored unsupported Plane issue action: {Action}",
                             action);
         
                         return Results.Ok(new
@@ -212,33 +212,6 @@ internal static class PlaneWebhookEndpoints
                         });
                     }
         
-                    app.Logger.LogInformation(
-                        "Raw PMS comment webhook payload: {Payload}",
-                        Limit(root.GetRawText(), 30000));
-        
-                    app.Logger.LogInformation(
-                        "Raw issue-comment data: {CommentData}",
-                        Limit(data.GetRawText(), 20000));
-        
-                    foreach (var property in new[]
-                    {
-                        "comment_html",
-                        "comment_stripped",
-                        "comment",
-                        "body",
-                        "content",
-                        "mentions",
-                        "mentioned_users",
-                        "mention_users",
-                        "user_mentions"
-                    })
-                    {
-                        LogJsonProperty(
-                            app.Logger,
-                            data,
-                            property);
-                    }
-        
                     var issueId = String(data, "issue") ?? "";
         
                     var workItem = await planeWorkItems.GetAsync(
@@ -254,7 +227,7 @@ internal static class PlaneWebhookEndpoints
                         $"{issueReference}: {workItem.Name}");
 
                     taskUrl = BuildTaskUrl(
-                        pmsTaskUrlTemplate,
+                            planeTaskUrlTemplate,
                         project.Identifier,
                         workItem.SequenceId);
 
@@ -280,7 +253,7 @@ internal static class PlaneWebhookEndpoints
                 else
                 {
                     app.Logger.LogInformation(
-                        "Ignored unsupported PMS webhook: Event={Event}, Action={Action}",
+                        "Ignored unsupported Plane webhook: Event={Event}, Action={Action}",
                         eventName,
                         action);
         
@@ -317,7 +290,7 @@ internal static class PlaneWebhookEndpoints
                 if (delivery.Success)
                 {
                     app.Logger.LogInformation(
-                        "Delivered PMS webhook to Zulip. " +
+                        "Delivered Plane webhook to Zulip. " +
                         "Event={Event}, Action={Action}, Project={Project}, " +
                         "Topic={Topic}, TaskUrl={TaskUrl}",
                         eventName,
@@ -363,28 +336,6 @@ internal static class PlaneWebhookEndpoints
         });
     }
 
-    static void LogJsonProperty(
-        ILogger logger,
-        JsonElement element,
-        string property)
-    {
-        if (element.ValueKind != JsonValueKind.Object ||
-            !element.TryGetProperty(property, out var value))
-        {
-            logger.LogInformation(
-                "Comment property {Property}: NOT PRESENT",
-                property);
-    
-            return;
-        }
-    
-        logger.LogInformation(
-            "Comment property {Property}: Kind={Kind}, Value={Value}",
-            property,
-            value.ValueKind,
-            Limit(value.GetRawText(), 10000));
-    }
-    
     static async Task<string> BuildCreatedIssueMessage(
         JsonElement data,
         ProjectInfo project,
@@ -1026,7 +977,7 @@ internal static class PlaneWebhookEndpoints
         string prefix)
     {
         /*
-         * Different PMS/Plane versions may use different properties
+         * Different Plane versions may use different properties
          * for readable old/new state values. Check the known formats.
          */
     
@@ -1334,7 +1285,7 @@ internal static class PlaneWebhookEndpoints
         message.AppendLine();
         message.AppendLine("---");
         message.AppendLine(
-            $"[**Open this task in PMS →**]({taskUrl})");
+            $"[**Open this task in Plane →**]({taskUrl})");
     }
     
     static string? BuildTaskUrl(

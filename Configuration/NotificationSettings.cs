@@ -14,20 +14,20 @@ internal sealed record NotificationSettings(
     int DescriptionDebounceSeconds)
 {
     public static NotificationSettings Load(ILogger logger) => new(
-        IssueCreated: Read("PMS_NOTIFY_ISSUE_CREATED", true, logger),
-        Comment: Read("PMS_NOTIFY_COMMENT", true, logger),
-        Status: Read("PMS_NOTIFY_STATUS", true, logger),
-        Assignee: Read("PMS_NOTIFY_ASSIGNEE", true, logger),
-        Priority: Read("PMS_NOTIFY_PRIORITY", true, logger),
-        Title: Read("PMS_NOTIFY_TITLE", true, logger),
-        Date: Read("PMS_NOTIFY_DATE", true, logger),
-        Label: Read("PMS_NOTIFY_LABEL", true, logger),
-        Points: Read("PMS_NOTIFY_POINTS", true, logger),
-        Draft: Read("PMS_NOTIFY_DRAFT", true, logger),
-        Description: Read("PMS_NOTIFY_DESCRIPTION", false, logger),
-        OtherUpdates: Read("PMS_NOTIFY_OTHER_UPDATES", true, logger),
+        IssueCreated: Read("PLANE_NOTIFY_ISSUE_CREATED", true, logger),
+        Comment: Read("PLANE_NOTIFY_COMMENT", true, logger),
+        Status: Read("PLANE_NOTIFY_STATUS", true, logger),
+        Assignee: Read("PLANE_NOTIFY_ASSIGNEE", true, logger),
+        Priority: Read("PLANE_NOTIFY_PRIORITY", true, logger),
+        Title: Read("PLANE_NOTIFY_TITLE", true, logger),
+        Date: Read("PLANE_NOTIFY_DATE", true, logger),
+        Label: Read("PLANE_NOTIFY_LABEL", true, logger),
+        Points: Read("PLANE_NOTIFY_POINTS", true, logger),
+        Draft: Read("PLANE_NOTIFY_DRAFT", true, logger),
+        Description: Read("PLANE_NOTIFY_DESCRIPTION", false, logger),
+        OtherUpdates: Read("PLANE_NOTIFY_OTHER_UPDATES", true, logger),
         DescriptionDebounceSeconds: ReadPositiveInt(
-            "PMS_DESCRIPTION_DEBOUNCE_SECONDS",
+            "PLANE_DESCRIPTION_DEBOUNCE_SECONDS",
             45,
             logger));
 
