@@ -1771,19 +1771,13 @@ internal static class PlaneWebhookEndpoints
     
         value = Regex.Replace(
             value,
-            @"<br\s*/?>",
+            @"</?br\s*/?>",
             "\n",
             RegexOptions.IgnoreCase);
     
         value = Regex.Replace(
             value,
-            @"</p\s*>",
-            "\n",
-            RegexOptions.IgnoreCase);
-    
-        value = Regex.Replace(
-            value,
-            @"</div\s*>",
+            @"</?(?:p|div|blockquote|h[1-6])\b[^>]*>",
             "\n",
             RegexOptions.IgnoreCase);
     
@@ -1819,4 +1813,3 @@ internal static class PlaneWebhookEndpoints
         return value.Trim();
     }
 }
-

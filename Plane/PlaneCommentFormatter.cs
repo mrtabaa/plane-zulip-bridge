@@ -155,7 +155,7 @@ internal sealed class PlaneCommentFormatter
         // before removing the remaining tags.
         value = Regex.Replace(
             value,
-            @"<br\s*/?>|</(?:p|div|li|blockquote|h[1-6])\s*>",
+            @"</?br\s*/?>|</?(?:p|div|blockquote|h[1-6])\b[^>]*>|</li\s*>",
             "\n",
             RegexOptions.IgnoreCase | RegexOptions.Singleline);
 

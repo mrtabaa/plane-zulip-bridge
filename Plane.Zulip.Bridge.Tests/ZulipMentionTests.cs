@@ -59,10 +59,12 @@ public sealed class ZulipMentionTests
             NullLogger<PlaneCommentFormatter>.Instance);
 
         var result = await formatter.FormatAsync(
-            "<p>first line</p><br>second line<div>third line</div>",
+            "<p>first line</p><br>second line</br>third line<div>fourth line</div>",
             CancellationToken.None);
 
-        Assert.Equal("first line\n\nsecond line\nthird line", result);
+        Assert.Equal(
+            "first line\n\nsecond line\nthird line\nfourth line",
+            result);
     }
 
     [Fact]
