@@ -118,7 +118,7 @@ internal static class PlaneWebhookEndpoints
                         cancellationToken);
         
                     taskUrl = BuildTaskUrl(
-                        planeTaskUrlTemplate,
+                            planeTaskUrlTemplate,
                         project.Identifier,
                         sequenceId);
         
@@ -227,7 +227,7 @@ internal static class PlaneWebhookEndpoints
                         $"{issueReference}: {workItem.Name}");
 
                     taskUrl = BuildTaskUrl(
-                            planeTaskUrlTemplate,
+                        planeTaskUrlTemplate,
                         project.Identifier,
                         workItem.SequenceId);
 
@@ -777,7 +777,7 @@ internal static class PlaneWebhookEndpoints
         var oldValue = Property(activity, "old_value");
         var newValue = Property(activity, "new_value");
     
-        if (EqualsIgnoreCase(field, "state_id"))
+        if (NotificationSettings.IsStatusField(field))
         {
             var currentState = Object(data, "state");
     
@@ -815,7 +815,7 @@ internal static class PlaneWebhookEndpoints
             return;
         }
     
-        if (EqualsIgnoreCase(field, "assignee_ids"))
+        if (NotificationSettings.IsAssigneeField(field))
         {
             await AppendAssigneeChanges(
                 message,
@@ -851,7 +851,7 @@ internal static class PlaneWebhookEndpoints
             return;
         }
     
-        if (EqualsIgnoreCase(field, "priority"))
+        if (NotificationSettings.IsPriorityField(field))
         {
             AddBullet(
                 message,
@@ -866,7 +866,7 @@ internal static class PlaneWebhookEndpoints
             return;
         }
     
-        if (EqualsIgnoreCase(field, "name"))
+        if (NotificationSettings.IsTitleField(field))
         {
             AddBullet(
                 message,
@@ -881,8 +881,7 @@ internal static class PlaneWebhookEndpoints
             return;
         }
     
-        if (EqualsIgnoreCase(field, "start_date") ||
-            EqualsIgnoreCase(field, "target_date"))
+        if (NotificationSettings.IsDateField(field))
         {
             AddBullet(
                 message,
@@ -897,7 +896,7 @@ internal static class PlaneWebhookEndpoints
             return;
         }
     
-        if (EqualsIgnoreCase(field, "label_ids"))
+        if (NotificationSettings.IsLabelField(field))
         {
             var oldLabels = await planeWorkItems.FindLabelNamesAsync(
                 projectId,
@@ -930,8 +929,7 @@ internal static class PlaneWebhookEndpoints
             return;
         }
     
-        if (EqualsIgnoreCase(field, "point") ||
-            EqualsIgnoreCase(field, "estimate_point"))
+        if (NotificationSettings.IsPointsField(field))
         {
             AddBullet(
                 message,
@@ -946,7 +944,7 @@ internal static class PlaneWebhookEndpoints
             return;
         }
     
-        if (EqualsIgnoreCase(field, "is_draft"))
+        if (NotificationSettings.IsDraftField(field))
         {
             AddBullet(
                 message,
@@ -1537,20 +1535,20 @@ internal static class PlaneWebhookEndpoints
     
     static string FriendlyFieldName(string? field)
     {
-        return field?.ToLowerInvariant() switch
+        return field?.Trim().ToLowerInvariant() switch
         {
-            "state_id" => "Status",
-            "assignee_ids" => "Assignees",
-            "description_html" => "Description",
+            "state_id" or "state" or "status" => "Status",
+            "assignee_ids" or "assignees" or "assignee" => "Assignees",
+            "description" or "description_html" or "description_stripped" => "Description",
             "priority" => "Priority",
-            "name" => "Title",
+            "name" or "title" => "Title",
             "start_date" => "Start date",
             "target_date" => "Target date",
-            "label_ids" => "Labels",
-            "point" => "Points",
-            "estimate_point" => "Estimate points",
+            "label_ids" or "labels" or "label" => "Labels",
+            "point" or "points" => "Points",
+            "estimate_point" or "estimate_points" => "Estimate points",
             "parent_id" => "Parent task",
-            "is_draft" => "Draft status",
+            "is_draft" or "draft" => "Draft status",
             null or "" => "Unspecified",
             _ => field.Replace('_', ' ')
         };

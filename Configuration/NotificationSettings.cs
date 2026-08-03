@@ -31,28 +31,56 @@ internal sealed record NotificationSettings(
             45,
             logger));
 
-    public bool ShouldSendUpdate(string? field) =>
-        field?.ToLowerInvariant() switch
-        {
-            "state_id" => Status,
-            "assignee_ids" => Assignee,
-            "priority" => Priority,
-            "name" => Title,
-            "start_date" or "target_date" => Date,
-            "label_ids" => Label,
-            "point" or "estimate_point" => Points,
-            "is_draft" => Draft,
-            "description" or
-            "description_html" or
-            "description_stripped" => Description,
-            _ => OtherUpdates
-        };
+    public bool ShouldSendUpdate(string? field)
+    {
+        if (IsStatusField(field)) return Status;
+        if (IsAssigneeField(field)) return Assignee;
+        if (IsPriorityField(field)) return Priority;
+        if (IsTitleField(field)) return Title;
+        if (IsDateField(field)) return Date;
+        if (IsLabelField(field)) return Label;
+        if (IsPointsField(field)) return Points;
+        if (IsDraftField(field)) return Draft;
+        if (IsDescriptionField(field)) return Description;
+
+        return OtherUpdates;
+    }
+
+    public static bool IsStatusField(string? field) =>
+        Is(field, "state_id", "state", "status");
+
+    public static bool IsAssigneeField(string? field) =>
+        Is(field, "assignee_ids", "assignees", "assignee");
+
+    public static bool IsPriorityField(string? field) =>
+        Is(field, "priority");
+
+    public static bool IsTitleField(string? field) =>
+        Is(field, "name", "title");
+
+    public static bool IsDateField(string? field) =>
+        Is(field, "start_date", "target_date");
+
+    public static bool IsLabelField(string? field) =>
+        Is(field, "label_ids", "labels", "label");
+
+    public static bool IsPointsField(string? field) =>
+        Is(field, "point", "points", "estimate_point", "estimate_points");
+
+    public static bool IsDraftField(string? field) =>
+        Is(field, "is_draft", "draft");
 
     public static bool IsDescriptionField(string? field) =>
-        field?.ToLowerInvariant() is
-            "description" or
-            "description_html" or
-            "description_stripped";
+        Is(field, "description", "description_html", "description_stripped");
+
+    private static bool Is(string? field, params string[] names)
+    {
+        if (string.IsNullOrWhiteSpace(field))
+            return false;
+
+        var normalized = field.Trim();
+        return names.Contains(normalized, StringComparer.OrdinalIgnoreCase);
+    }
 
     private static bool Read(
         string variable,
