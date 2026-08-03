@@ -7,10 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Compile Remove="Plane.Zulip.Bridge.Tests/**/*.cs" />
   </ItemGroup>
 
