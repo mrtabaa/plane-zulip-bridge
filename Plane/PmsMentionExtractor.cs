@@ -19,6 +19,34 @@ internal sealed class PmsMentionExtractor
                 .Concat(Assignees(data)));
     }
 
+    public static PmsUserRef? IssueCreator(JsonElement data)
+    {
+        // Plane commonly exposes the UUID in created_by and the usable user
+        // object in created_by_detail. Prefer the detailed representations.
+        var detailedCreator = UserObjects(data, "created_by_detail")
+            .Concat(UserObjects(data, "creator"))
+            .Concat(UserObjects(data, "created_by"))
+            .FirstOrDefault(user =>
+                !string.IsNullOrWhiteSpace(user.Email) ||
+                !string.IsNullOrWhiteSpace(user.DisplayName));
+
+        if (detailedCreator is not null)
+            return detailedCreator;
+
+        var creatorId = String(data, "created_by");
+
+        if (string.IsNullOrWhiteSpace(creatorId))
+            return null;
+
+        // Some update payloads expose only the creator UUID. When the same
+        // user is included as an assignee, recover their detailed user data.
+        return Assignees(data).FirstOrDefault(user =>
+            string.Equals(
+                user.Id,
+                creatorId,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
     public IReadOnlyList<PmsUserRef> IssueUpdatedUsers(
         JsonElement data,
         JsonElement activity,
@@ -256,4 +284,3 @@ internal sealed class PmsMentionExtractor
         return result;
     }
 }
-

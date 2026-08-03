@@ -105,6 +105,14 @@ internal static class PlaneWebhookEndpoints
                     var issueReference = sequenceId is not null
                         ? $"#{sequenceId}"
                         : ShortId(issueId);
+
+                    issueCache.TryGet(issueId, out var cachedIssue);
+
+                    var issueCreator =
+                        PmsMentionExtractor.IssueCreator(data) ??
+                        (EqualsIgnoreCase(action, "created")
+                            ? actorUser
+                            : CachedCreator(cachedIssue));
         
                     /*
                      * Save issue information for later comment webhooks.
@@ -117,7 +125,10 @@ internal static class PlaneWebhookEndpoints
                             SequenceId: sequenceId,
                             ProjectId: projectId,
                             ProjectName: project.Name,
-                            ProjectIdentifier: project.Identifier));
+                            ProjectIdentifier: project.Identifier,
+                            CreatorId: issueCreator?.Id,
+                            CreatorEmail: issueCreator?.Email,
+                            CreatorDisplayName: issueCreator?.DisplayName));
                     }
         
                     taskUrl = BuildTaskUrl(
@@ -154,6 +165,7 @@ internal static class PlaneWebhookEndpoints
                             pmsMentionExtractor,
                             zulipMentionFormatter,
                             actorUser,
+                            issueCreator,
                             cancellationToken);
                     }
                     else if (EqualsIgnoreCase(action, "updated"))
@@ -189,6 +201,7 @@ internal static class PlaneWebhookEndpoints
                             pmsMentionExtractor,
                             zulipMentionFormatter,
                             actorUser,
+                            issueCreator,
                             cancellationToken);
         
                         if (NotificationSettings.IsDescriptionField(changedField))
@@ -420,6 +433,7 @@ internal static class PlaneWebhookEndpoints
         PmsMentionExtractor mentionExtractor,
         ZulipMentionFormatter mentionFormatter,
         PmsUserRef actorUser,
+        PmsUserRef? issueCreator,
         CancellationToken cancellationToken)
     {
         var issueName = String(data, "name") ?? "Unnamed task";
@@ -458,7 +472,8 @@ internal static class PlaneWebhookEndpoints
             message,
             data,
             mentionFormatter,
-            cancellationToken);
+            cancellationToken,
+            issueCreator);
     
         // if (!string.IsNullOrWhiteSpace(description))
         // {
@@ -494,6 +509,7 @@ internal static class PlaneWebhookEndpoints
         PmsMentionExtractor mentionExtractor,
         ZulipMentionFormatter mentionFormatter,
         PmsUserRef actorUser,
+        PmsUserRef? issueCreator,
         CancellationToken cancellationToken)
     {
         var issueName = String(data, "name") ?? "Unnamed task";
@@ -552,6 +568,7 @@ internal static class PlaneWebhookEndpoints
             data,
             mentionFormatter,
             cancellationToken,
+            issueCreator,
             includeHeading: false);
     
         // var description = Description(data);
@@ -1140,12 +1157,29 @@ internal static class PlaneWebhookEndpoints
             ? $"1 {singular}"
             : $"{count} {plural}";
     }
+
+    static PmsUserRef? CachedCreator(IssueInfo? issue)
+    {
+        if (issue is null ||
+            (string.IsNullOrWhiteSpace(issue.CreatorId) &&
+             string.IsNullOrWhiteSpace(issue.CreatorEmail) &&
+             string.IsNullOrWhiteSpace(issue.CreatorDisplayName)))
+        {
+            return null;
+        }
+
+        return new PmsUserRef(
+            issue.CreatorId,
+            issue.CreatorEmail,
+            issue.CreatorDisplayName);
+    }
     
     static async Task AppendCurrentIssueDetails(
         StringBuilder message,
         JsonElement data,
         ZulipMentionFormatter mentionFormatter,
         CancellationToken cancellationToken,
+        PmsUserRef? cachedCreator = null,
         bool includeHeading = true)
     {
         if (includeHeading)
@@ -1224,6 +1258,17 @@ internal static class PlaneWebhookEndpoints
             message,
             "Target date",
             FormatDate(String(data, "target_date")));
+
+        var creator = PmsMentionExtractor.IssueCreator(data) ?? cachedCreator;
+
+        AddBullet(
+            message,
+            "Created by",
+            creator is null
+                ? "Not available"
+                : await mentionFormatter.FormatUserAsync(
+                    creator,
+                    cancellationToken));
     
         AddBullet(
             message,

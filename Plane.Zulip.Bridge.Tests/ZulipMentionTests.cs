@@ -233,6 +233,49 @@ public sealed class ZulipMentionTests
     }
 
     [Fact]
+    public void IssueCreator_PrefersCreatedByDetail()
+    {
+        using var data = Json("""
+        {
+          "created_by": "c41d31d6-6450-46bc-8fd6-f1bb1b9050d4",
+          "created_by_detail": {
+            "id": "c41d31d6-6450-46bc-8fd6-f1bb1b9050d4",
+            "email": "creator@example.com",
+            "display_name": "Original Creator"
+          }
+        }
+        """);
+
+        var creator = PmsMentionExtractor.IssueCreator(data.RootElement);
+
+        Assert.NotNull(creator);
+        Assert.Equal("creator@example.com", creator.Email);
+        Assert.Equal("Original Creator", creator.DisplayName);
+    }
+
+    [Fact]
+    public void IssueCreator_MatchesCreatedByIdToDetailedAssignee()
+    {
+        using var data = Json("""
+        {
+          "created_by": "creator-id",
+          "assignees": [
+            {
+              "id": "creator-id",
+              "email": "creator@example.com",
+              "display_name": "Original Creator"
+            }
+          ]
+        }
+        """);
+
+        var creator = PmsMentionExtractor.IssueCreator(data.RootElement);
+
+        Assert.NotNull(creator);
+        Assert.Equal("Original Creator", creator.DisplayName);
+    }
+
+    [Fact]
     public async Task Resolver_UsesCaseInsensitiveTrimmedEmailLookup()
     {
         var http = new HttpClient(new StaticHandler(
