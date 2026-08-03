@@ -38,7 +38,7 @@ internal sealed class PlaneCommentFormatter
         var matches = MentionComponentRegex.Matches(commentHtml);
 
         if (matches.Count == 0)
-            return NormalizeText(StripHtml(commentHtml));
+            return PlaneHtmlText.ToPlainText(commentHtml);
 
         var replacements = new List<(Match Match, string Replacement)>();
 
@@ -99,7 +99,7 @@ internal sealed class PlaneCommentFormatter
                 replacement.Replacement);
         }
 
-        return NormalizeText(StripHtml(result.ToString()));
+        return PlaneHtmlText.ToPlainText(result.ToString());
     }
 
     public async ValueTask<IReadOnlyList<PmsUserRef>> MentionUsersAsync(
@@ -146,30 +146,4 @@ internal sealed class PlaneCommentFormatter
             : null;
     }
 
-    private static string NormalizeText(string? value) =>
-        string.IsNullOrWhiteSpace(value)
-            ? ""
-            : value.Trim();
-
-    private static string StripHtml(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return "";
-
-        // Preserve the line structure represented by common HTML elements
-        // before removing the remaining tags.
-        value = Regex.Replace(
-            value,
-            @"</?br\s*/?>|</?(?:p|div|blockquote|h[1-6])\b[^>]*>|</li\s*>",
-            "\n",
-            RegexOptions.IgnoreCase | RegexOptions.Singleline);
-
-        var withoutTags = Regex.Replace(
-            value,
-            "<[^>]+>",
-            "",
-            RegexOptions.Singleline);
-
-        return System.Net.WebUtility.HtmlDecode(withoutTags);
-    }
 }

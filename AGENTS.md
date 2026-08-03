@@ -82,7 +82,9 @@ environments.
 - Plane project, user, creator, assignee, state, label, work-item, and attachment
   metadata comes from the Plane API.
 - Zulip identity resolution comes from the Zulip users API.
-- Comment and description HTML line breaks are preserved.
+- Comment and description HTML line breaks, including Plane's nonstandard
+  `</br>` form, are preserved. Description formatting must prefer
+  `description_html` over the flattened `description_stripped` value.
 - Raw webhook/comment payload diagnostics have been removed.
 - Plane and Zulip use separate dependency-injected HTTP clients with a 15-second
   timeout and five-minute pooled connection lifetime.

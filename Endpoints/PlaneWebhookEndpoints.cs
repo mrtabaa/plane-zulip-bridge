@@ -1,4 +1,3 @@
-using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -680,7 +679,7 @@ internal static class PlaneWebhookEndpoints
             var value = String(data, property);
     
             if (!string.IsNullOrWhiteSpace(value))
-                return NormalizeText(StripHtml(value));
+                return PlaneHtmlText.ToPlainText(value);
         }
     
         // Only use HTML after trying the plain-text properties.
@@ -688,7 +687,7 @@ internal static class PlaneWebhookEndpoints
     
         if (!string.IsNullOrWhiteSpace(commentHtml))
         {
-            var stripped = StripHtml(commentHtml);
+            var stripped = PlaneHtmlText.ToPlainText(commentHtml);
     
             if (!string.IsNullOrWhiteSpace(stripped))
                 return NormalizeText(stripped);
@@ -848,12 +847,7 @@ internal static class PlaneWebhookEndpoints
     
         if (NotificationSettings.IsDescriptionField(field))
         {
-            var description =
-                String(data, "description_stripped") ??
-                StripHtml(String(data, "description_html"));
-    
-            if (string.IsNullOrWhiteSpace(description))
-                description = StripHtml(ValueAsString(newValue));
+            var description = DescriptionText(data, newValue);
     
             description = PmsMentionExtractor.ReplaceTeamMention(
                 PmsMentionExtractor.NeutralizeBroadcastMentions(description));
@@ -1674,6 +1668,27 @@ internal static class PlaneWebhookEndpoints
         };
     }
 
+    internal static string DescriptionText(
+        JsonElement data,
+        JsonElement newValue)
+    {
+        var description = PlaneHtmlText.ToPlainText(
+            String(data, "description_html"));
+
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            var changedHtml = String(newValue, "description_html") ??
+                (newValue.ValueKind == JsonValueKind.String
+                    ? newValue.GetString()
+                    : null);
+            description = PlaneHtmlText.ToPlainText(changedHtml);
+        }
+
+        return string.IsNullOrWhiteSpace(description)
+            ? NormalizeText(String(data, "description_stripped") ?? "")
+            : description;
+    }
+
     static string? JsonIdentifier(JsonElement value)
     {
         return value.ValueKind switch
@@ -1779,52 +1794,4 @@ internal static class PlaneWebhookEndpoints
             expectedHash);
     }
     
-    static string StripHtml(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return "";
-    
-        value = Regex.Replace(
-            value,
-            @"</?br\s*/?>",
-            "\n",
-            RegexOptions.IgnoreCase);
-    
-        value = Regex.Replace(
-            value,
-            @"</?(?:p|div|blockquote|h[1-6])\b[^>]*>",
-            "\n",
-            RegexOptions.IgnoreCase);
-    
-        value = Regex.Replace(
-            value,
-            @"<li[^>]*>",
-            "• ",
-            RegexOptions.IgnoreCase);
-    
-        value = Regex.Replace(
-            value,
-            @"</li\s*>",
-            "\n",
-            RegexOptions.IgnoreCase);
-    
-        value = Regex.Replace(
-            value,
-            @"<[^>]+>",
-            "");
-    
-        value = WebUtility.HtmlDecode(value);
-    
-        value = Regex.Replace(
-            value,
-            @"[ \t]+\n",
-            "\n");
-    
-        value = Regex.Replace(
-            value,
-            @"\n{3,}",
-            "\n\n");
-    
-        return value.Trim();
-    }
 }
