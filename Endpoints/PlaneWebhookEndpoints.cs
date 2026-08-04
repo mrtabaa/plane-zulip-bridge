@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -6,6 +7,9 @@ using static PmsPayload;
 
 internal static class PlaneWebhookEndpoints
 {
+    static readonly TimeZoneInfo TehranTimeZone =
+        TimeZoneInfo.FindSystemTimeZoneById("Asia/Tehran");
+
     public static void MapPlaneWebhook(
         this WebApplication app,
         string webhookToken,
@@ -1588,19 +1592,39 @@ internal static class PlaneWebhookEndpoints
         };
     }
     
-    static string FormatDate(string? value)
+    internal static string FormatDate(
+        string? value,
+        DateTimeOffset? utcNow = null)
     {
         if (string.IsNullOrWhiteSpace(value))
             return "Not set";
+
+        if (DateOnly.TryParseExact(
+                value,
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var calendarDate))
+        {
+            var tehranNow = TimeZoneInfo.ConvertTime(
+                utcNow ?? DateTimeOffset.UtcNow,
+                TehranTimeZone);
+            var timestamp = calendarDate.ToDateTime(
+                TimeOnly.FromTimeSpan(tehranNow.TimeOfDay));
+
+            return $"{timestamp:yyyy-MM-dd HH:mm:ss}";
+        }
     
         if (DateTimeOffset.TryParse(value, out var date))
         {
-            return $"{date.UtcDateTime:yyyy-MM-dd HH:mm:ss} UTC";
+            var tehranDate = TimeZoneInfo.ConvertTime(date, TehranTimeZone);
+
+            return $"{tehranDate:yyyy-MM-dd HH:mm:ss}";
         }
     
         return EscapeMarkdown(value);
     }
-    
+
     static string BooleanDisplay(
         JsonElement element,
         string property)

@@ -89,6 +89,8 @@ environments.
 - Plane and Zulip use separate dependency-injected HTTP clients with a 15-second
   timeout and five-minute pooled connection lifetime.
 - The bridge intentionally supports one Plane workspace per deployment.
+- Notification timestamps are displayed in the `Asia/Tehran` timezone. When
+  Plane supplies a date without a time, the current Tehran time is used.
 - Known Plane activity field aliases are mapped to their dedicated
   `PLANE_NOTIFY_*` flags and must not fall through to `PLANE_NOTIFY_OTHER_UPDATES`.
 - Description and assignee updates are independently delivered after their
