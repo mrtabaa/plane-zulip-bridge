@@ -135,7 +135,23 @@ authentication credential.
 
 ## Docker
 
-Build the image:
+Version `5.8.0` is published in the
+[Hallboard container registry](https://git.hallboard.ir/team/-/packages/container/prod_plane-zulip-bridge/5.8.0):
+
+```bash
+docker pull git.hallboard.ir/team/prod_plane-zulip-bridge:5.8.0
+```
+
+Run the published image with the environment file:
+
+```bash
+docker run --rm \
+  --env-file .env \
+  -p 8080:8080 \
+  git.hallboard.ir/team/prod_plane-zulip-bridge:5.8.0
+```
+
+Alternatively, build the image locally:
 
 ```bash
 docker build -t plane-zulip-bridge:local .
