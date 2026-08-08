@@ -48,6 +48,28 @@ public sealed class NotificationSettingsTests
             .ShouldSendUpdate("unknown_field"));
     }
 
+    [Theory]
+    [InlineData("1", true)]
+    [InlineData("0", false)]
+    [InlineData(" 1 ", true)]
+    [InlineData(" 0 ", false)]
+    public void NotificationFlag_ParsesNumericBoolean(
+        string value,
+        bool expected)
+    {
+        Assert.True(NotificationSettings.TryParseFlag(value, out var actual));
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData("true")]
+    [InlineData("false")]
+    [InlineData("yes")]
+    public void NotificationFlag_RejectsNonNumericBoolean(string value)
+    {
+        Assert.False(NotificationSettings.TryParseFlag(value, out _));
+    }
+
     private static NotificationSettings SettingsWithOnly(string category) => new(
         IssueCreated: false,
         Comment: false,

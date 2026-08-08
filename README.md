@@ -68,23 +68,23 @@ configured workspace slug. `PLANE_API_URL` should point to the Plane API origin;
 
 ### Notification settings
 
-Notification flags accept `true` or `false`. Invalid values are ignored and the
+Notification flags accept `1` (enabled) or `0` (disabled). Invalid values are ignored and the
 documented default is used.
 
 | Variable | Default | Controls |
 | --- | ---: | --- |
-| `PLANE_NOTIFY_ISSUE_CREATED` | `true` | New issues |
-| `PLANE_NOTIFY_COMMENT` | `true` | New issue comments |
-| `PLANE_NOTIFY_STATUS` | `true` | Status changes |
-| `PLANE_NOTIFY_ASSIGNEE` | `true` | Assignee changes |
-| `PLANE_NOTIFY_PRIORITY` | `true` | Priority changes |
-| `PLANE_NOTIFY_TITLE` | `true` | Title changes |
-| `PLANE_NOTIFY_DATE` | `true` | Start- and target-date changes |
-| `PLANE_NOTIFY_LABEL` | `true` | Label changes |
-| `PLANE_NOTIFY_POINTS` | `true` | Estimate/point changes |
-| `PLANE_NOTIFY_DRAFT` | `true` | Draft-state changes |
-| `PLANE_NOTIFY_DESCRIPTION` | `false` | Description changes |
-| `PLANE_NOTIFY_OTHER_UPDATES` | `true` | Update fields not listed above |
+| `PLANE_NOTIFY_ISSUE_CREATED` | `1` | New issues |
+| `PLANE_NOTIFY_COMMENT` | `1` | New issue comments |
+| `PLANE_NOTIFY_STATUS` | `1` | Status changes |
+| `PLANE_NOTIFY_ASSIGNEE` | `1` | Assignee changes |
+| `PLANE_NOTIFY_PRIORITY` | `1` | Priority changes |
+| `PLANE_NOTIFY_TITLE` | `1` | Title changes |
+| `PLANE_NOTIFY_DATE` | `1` | Start- and target-date changes |
+| `PLANE_NOTIFY_LABEL` | `1` | Label changes |
+| `PLANE_NOTIFY_POINTS` | `1` | Estimate/point changes |
+| `PLANE_NOTIFY_DRAFT` | `1` | Draft-state changes |
+| `PLANE_NOTIFY_DESCRIPTION` | `0` | Description changes |
+| `PLANE_NOTIFY_OTHER_UPDATES` | `1` | Update fields not listed above |
 | `PLANE_ISSUE_CREATION_DEBOUNCE_SECONDS` | `120` | Quiet period that consolidates a new issue and its initial field changes into one message |
 | `PLANE_DESCRIPTION_DEBOUNCE_SECONDS` | `45` | Description quiet period |
 | `PLANE_ASSIGNEE_DEBOUNCE_SECONDS` | description delay | Assignee quiet period |

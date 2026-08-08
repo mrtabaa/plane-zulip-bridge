@@ -43,7 +43,8 @@ ZULIP_CHANNEL=0-pms
 WEBHOOK_TOKEN=REPLACE_ME
 ```
 
-Notification variables use the `PLANE_NOTIFY_*` prefix. New issue setup is
+Notification variables use the `PLANE_NOTIFY_*` prefix and accept `1` for
+enabled or `0` for disabled. New issue setup is
 consolidated with `PLANE_ISSUE_CREATION_DEBOUNCE_SECONDS` (default 120 seconds).
 Description and assignee debounce periods are configured with
 `PLANE_DESCRIPTION_DEBOUNCE_SECONDS` and `PLANE_ASSIGNEE_DEBOUNCE_SECONDS`. The

@@ -107,9 +107,25 @@ internal sealed record NotificationSettings(
         if (string.IsNullOrWhiteSpace(value))
             return defaultValue;
 
-        return bool.TryParse(value.Trim(), out var parsedValue)
+        return TryParseFlag(value, out var parsedValue)
             ? parsedValue
             : Invalid(variable, value, defaultValue, logger);
+    }
+
+    internal static bool TryParseFlag(string value, out bool parsedValue)
+    {
+        switch (value.Trim())
+        {
+            case "1":
+                parsedValue = true;
+                return true;
+            case "0":
+                parsedValue = false;
+                return true;
+            default:
+                parsedValue = default;
+                return false;
+        }
     }
 
     private static bool Invalid(
