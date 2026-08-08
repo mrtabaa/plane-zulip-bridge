@@ -46,9 +46,10 @@ WEBHOOK_TOKEN=REPLACE_ME
 Notification variables use the `PLANE_NOTIFY_*` prefix and accept `1` for
 enabled or `0` for disabled. New issue setup is
 consolidated with `PLANE_ISSUE_CREATION_DEBOUNCE_SECONDS` (default 120 seconds).
-Description and assignee debounce periods are configured with
-`PLANE_DESCRIPTION_DEBOUNCE_SECONDS` and `PLANE_ASSIGNEE_DEBOUNCE_SECONDS`. The
-assignee delay defaults to the configured description delay when omitted.
+Description, assignee, and label debounce periods are configured with
+`PLANE_DESCRIPTION_DEBOUNCE_SECONDS`, `PLANE_ASSIGNEE_DEBOUNCE_SECONDS`, and
+`PLANE_LABEL_DEBOUNCE_SECONDS`. The assignee and label delays default to the
+configured description delay when omitted.
 
 Do not restore legacy `PMS_*`, mapping-file, or cache-file variables.
 
@@ -96,9 +97,9 @@ environments.
   Plane supplies a date without a time, the current Tehran time is used.
 - Known Plane activity field aliases are mapped to their dedicated
   `PLANE_NOTIFY_*` flags and must not fall through to `PLANE_NOTIFY_OTHER_UPDATES`.
-- Description and assignee updates are independently delivered after their
-  configured quiet periods; a newer update of the same type replaces the pending
-  notification for that issue.
+- Description, assignee, and label updates are independently delivered after
+  their configured quiet periods; a newer update of the same type replaces the
+  pending notification for that issue.
 - New issue notifications are delivered after a configurable quiet period; any
   issue update during that period refreshes the pending `Created` notification
   and restarts the timer so initial setup produces one Zulip message.

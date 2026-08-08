@@ -243,6 +243,12 @@ internal static class PlaneWebhookEndpoints
                             debouncedNotificationType = "assignee";
                             debounceSeconds = notificationSettings.AssigneeDebounceSeconds;
                         }
+                        else if (NotificationSettings.IsLabelField(changedField))
+                        {
+                            debouncedIssueId = issueId;
+                            debouncedNotificationType = "label";
+                            debounceSeconds = notificationSettings.LabelDebounceSeconds;
+                        }
                     }
                     else
                     {

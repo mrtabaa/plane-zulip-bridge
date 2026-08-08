@@ -88,6 +88,7 @@ documented default is used.
 | `PLANE_ISSUE_CREATION_DEBOUNCE_SECONDS` | `120` | Quiet period that consolidates a new issue and its initial field changes into one message |
 | `PLANE_DESCRIPTION_DEBOUNCE_SECONDS` | `45` | Description quiet period |
 | `PLANE_ASSIGNEE_DEBOUNCE_SECONDS` | description delay | Assignee quiet period |
+| `PLANE_LABEL_DEBOUNCE_SECONDS` | description delay | Label quiet period |
 
 Debounce values must be positive integers. A new issue notification is held
 until its creation quiet period expires. Each issue update during that period
@@ -212,6 +213,6 @@ The main components are:
   message construction, and delivery responses.
 - `Plane/` — Plane API metadata clients and Plane content formatting.
 - `Zulip/` — user resolution, mention formatting, and stream delivery.
-- `Notifications/NotificationDebouncer.cs` — independent in-memory description
-  and assignee debounce queues.
+- `Notifications/NotificationDebouncer.cs` — independent in-memory description,
+  assignee, and label debounce queues.
 - `Plane.Zulip.Bridge.Tests/` — unit tests.

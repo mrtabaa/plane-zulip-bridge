@@ -85,7 +85,8 @@ public sealed class NotificationSettingsTests
         OtherUpdates: false,
         IssueCreationDebounceSeconds: 120,
         DescriptionDebounceSeconds: 45,
-        AssigneeDebounceSeconds: 45);
+        AssigneeDebounceSeconds: 45,
+        LabelDebounceSeconds: 45);
 
     private static NotificationSettings AllUpdateFlagsDisabled(
         bool otherUpdates = false) => new(
@@ -103,5 +104,6 @@ public sealed class NotificationSettingsTests
         OtherUpdates: otherUpdates,
         IssueCreationDebounceSeconds: 120,
         DescriptionDebounceSeconds: 45,
-        AssigneeDebounceSeconds: 45);
+        AssigneeDebounceSeconds: 45,
+        LabelDebounceSeconds: 45);
 }

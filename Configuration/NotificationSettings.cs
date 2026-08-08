@@ -13,7 +13,8 @@ internal sealed record NotificationSettings(
     bool OtherUpdates,
     int IssueCreationDebounceSeconds,
     int DescriptionDebounceSeconds,
-    int AssigneeDebounceSeconds)
+    int AssigneeDebounceSeconds,
+    int LabelDebounceSeconds)
 {
     public static NotificationSettings Load(ILogger logger)
     {
@@ -42,6 +43,10 @@ internal sealed record NotificationSettings(
             DescriptionDebounceSeconds: descriptionDebounceSeconds,
             AssigneeDebounceSeconds: ReadPositiveInt(
                 "PLANE_ASSIGNEE_DEBOUNCE_SECONDS",
+                descriptionDebounceSeconds,
+                logger),
+            LabelDebounceSeconds: ReadPositiveInt(
+                "PLANE_LABEL_DEBOUNCE_SECONDS",
                 descriptionDebounceSeconds,
                 logger));
     }

@@ -32,9 +32,9 @@ public sealed class NotificationDebouncerTests
     }
 
     [Fact]
-    public async Task DescriptionAndAssigneeUpdates_AreDebouncedIndependently()
+    public async Task DescriptionAssigneeAndLabelUpdates_AreDebouncedIndependently()
     {
-        var handler = new RecordingHandler(expectedRequests: 2);
+        var handler = new RecordingHandler(expectedRequests: 3);
         using var debouncer = CreateDebouncer(handler);
 
         debouncer.Schedule(
@@ -49,10 +49,16 @@ public sealed class NotificationDebouncerTests
             "topic",
             "assignee update",
             TimeSpan.FromMilliseconds(20));
+        debouncer.Schedule(
+            "label",
+            "issue-id",
+            "topic",
+            "label update",
+            TimeSpan.FromMilliseconds(20));
 
         await handler.Completed.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Equal(3, handler.RequestBodies.Count);
     }
 
     [Fact]
