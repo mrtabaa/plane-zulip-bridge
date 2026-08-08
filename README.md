@@ -85,11 +85,16 @@ documented default is used.
 | `PLANE_NOTIFY_DRAFT` | `true` | Draft-state changes |
 | `PLANE_NOTIFY_DESCRIPTION` | `false` | Description changes |
 | `PLANE_NOTIFY_OTHER_UPDATES` | `true` | Update fields not listed above |
+| `PLANE_ISSUE_CREATION_DEBOUNCE_SECONDS` | `120` | Quiet period that consolidates a new issue and its initial field changes into one message |
 | `PLANE_DESCRIPTION_DEBOUNCE_SECONDS` | `45` | Description quiet period |
 | `PLANE_ASSIGNEE_DEBOUNCE_SECONDS` | description delay | Assignee quiet period |
 
-Debounce values must be positive integers. Pending debounce state is held only
-in memory and is lost when the process stops.
+Debounce values must be positive integers. A new issue notification is held
+until its creation quiet period expires. Each issue update during that period
+refreshes the pending notification with the latest issue snapshot and restarts
+the timer, so Zulip receives one consolidated `Created` message. Comments are
+not included in this window. Pending debounce state is held only in memory and
+is lost when the process stops.
 
 ## Run locally
 

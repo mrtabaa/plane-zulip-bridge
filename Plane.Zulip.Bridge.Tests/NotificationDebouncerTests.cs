@@ -55,6 +55,47 @@ public sealed class NotificationDebouncerTests
         Assert.Equal(2, handler.RequestBodies.Count);
     }
 
+    [Fact]
+    public async Task PendingIssueCreation_IsReplacedByConsolidatedSnapshot()
+    {
+        var handler = new RecordingHandler(expectedRequests: 1);
+        using var debouncer = CreateDebouncer(handler);
+
+        debouncer.Schedule(
+            "issue-created",
+            "issue-id",
+            "topic",
+            "initial snapshot",
+            TimeSpan.FromMilliseconds(100));
+
+        Assert.True(debouncer.TryReschedulePending(
+            "issue-created",
+            "issue-id",
+            "topic",
+            "configured snapshot",
+            TimeSpan.FromMilliseconds(20)));
+
+        await handler.Completed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.Delay(150);
+
+        var request = Assert.Single(handler.RequestBodies);
+        Assert.Contains("configured+snapshot", request, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MissingIssueCreation_IsNotScheduledByAnUpdate()
+    {
+        using var debouncer = CreateDebouncer(
+            new RecordingHandler(expectedRequests: 1));
+
+        Assert.False(debouncer.TryReschedulePending(
+            "issue-created",
+            "issue-id",
+            "topic",
+            "update",
+            TimeSpan.FromMilliseconds(20)));
+    }
+
     private static NotificationDebouncer CreateDebouncer(
         HttpMessageHandler handler)
     {

@@ -11,6 +11,7 @@ internal sealed record NotificationSettings(
     bool Draft,
     bool Description,
     bool OtherUpdates,
+    int IssueCreationDebounceSeconds,
     int DescriptionDebounceSeconds,
     int AssigneeDebounceSeconds)
 {
@@ -34,6 +35,10 @@ internal sealed record NotificationSettings(
             Draft: Read("PLANE_NOTIFY_DRAFT", true, logger),
             Description: Read("PLANE_NOTIFY_DESCRIPTION", false, logger),
             OtherUpdates: Read("PLANE_NOTIFY_OTHER_UPDATES", true, logger),
+            IssueCreationDebounceSeconds: ReadPositiveInt(
+                "PLANE_ISSUE_CREATION_DEBOUNCE_SECONDS",
+                120,
+                logger),
             DescriptionDebounceSeconds: descriptionDebounceSeconds,
             AssigneeDebounceSeconds: ReadPositiveInt(
                 "PLANE_ASSIGNEE_DEBOUNCE_SECONDS",

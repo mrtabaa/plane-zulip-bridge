@@ -155,10 +155,52 @@ internal static class PlaneWebhookEndpoints
                             actorUser,
                             issueCreator,
                             cancellationToken);
+
+                        debouncedIssueId = issueId;
+                        debouncedNotificationType = "issue-created";
+                        debounceSeconds = notificationSettings.IssueCreationDebounceSeconds;
                     }
                     else if (EqualsIgnoreCase(action, "updated"))
                     {
                         var changedField = String(activity, "field");
+
+                        if (notificationDebouncer.IsPending("issue-created", issueId))
+                        {
+                            var consolidatedContent = await BuildCreatedIssueMessage(
+                                data,
+                                project,
+                                projectId,
+                                issueReference,
+                                taskUrl,
+                                pmsMentionExtractor,
+                                zulipMentionFormatter,
+                                planeUsers,
+                                planeWorkItems,
+                                actorUser,
+                                issueCreator,
+                                cancellationToken);
+
+                            if (notificationDebouncer.TryReschedulePending(
+                                "issue-created",
+                                issueId,
+                                topic,
+                                consolidatedContent,
+                                TimeSpan.FromSeconds(
+                                    notificationSettings.IssueCreationDebounceSeconds)))
+                            {
+                                return Results.Ok(new
+                                {
+                                    ok = true,
+                                    scheduled = true,
+                                    notificationType = "issue-created",
+                                    debounceSeconds = notificationSettings.IssueCreationDebounceSeconds,
+                                    consolidatedUpdate = changedField,
+                                    project = project.Name,
+                                    topic,
+                                    taskUrl
+                                });
+                            }
+                        }
         
                         if (!notificationSettings.ShouldSendUpdate(changedField))
                         {
@@ -371,6 +413,7 @@ internal static class PlaneWebhookEndpoints
         CancellationToken cancellationToken)
     {
         var issueName = String(data, "name") ?? "Unnamed task";
+        var creator = issueCreator ?? actorUser;
     
         var message = new StringBuilder();
     
@@ -387,7 +430,7 @@ internal static class PlaneWebhookEndpoints
             message,
             "Created by",
             await mentionFormatter.FormatUserAsync(
-                actorUser,
+                creator,
                 cancellationToken));
     
         AddBullet(
@@ -398,7 +441,7 @@ internal static class PlaneWebhookEndpoints
         await AppendInvolvedUsersAsync(
             message,
             mentionFormatter,
-            mentionExtractor.IssueCreatedUsers(data, actorUser),
+            mentionExtractor.IssueCreatedUsers(data, creator),
             cancellationToken);
     
         await AppendCurrentIssueDetails(

@@ -61,6 +61,7 @@ public sealed class NotificationSettingsTests
         Draft: category == "draft",
         Description: category == "description",
         OtherUpdates: false,
+        IssueCreationDebounceSeconds: 120,
         DescriptionDebounceSeconds: 45,
         AssigneeDebounceSeconds: 45);
 
@@ -78,6 +79,7 @@ public sealed class NotificationSettingsTests
         Draft: false,
         Description: false,
         OtherUpdates: otherUpdates,
+        IssueCreationDebounceSeconds: 120,
         DescriptionDebounceSeconds: 45,
         AssigneeDebounceSeconds: 45);
 }

@@ -19,8 +19,8 @@ email, and sends messages to a Zulip stream.
 - `Plane/PlaneCommentFormatter.cs` converts Plane comment HTML and mentions.
 - `Zulip/ZulipUserResolver.cs` loads Zulip users from the Zulip API.
 - `Zulip/ZulipMessageSender.cs` delivers stream messages.
-- `Notifications/NotificationDebouncer.cs` independently debounces description
-  and assignee updates in memory.
+- `Notifications/NotificationDebouncer.cs` consolidates initial issue setup and
+  independently debounces later description and assignee updates in memory.
 
 There are no JSON mapping files or persistent project, user, mention, or issue
 caches. Do not reintroduce them unless the user explicitly changes this design.
@@ -43,10 +43,11 @@ ZULIP_CHANNEL=0-pms
 WEBHOOK_TOKEN=REPLACE_ME
 ```
 
-Notification variables use the `PLANE_NOTIFY_*` prefix. Description and assignee
-debounce periods are configured with `PLANE_DESCRIPTION_DEBOUNCE_SECONDS` and
-`PLANE_ASSIGNEE_DEBOUNCE_SECONDS`. The assignee delay defaults to the configured
-description delay when omitted.
+Notification variables use the `PLANE_NOTIFY_*` prefix. New issue setup is
+consolidated with `PLANE_ISSUE_CREATION_DEBOUNCE_SECONDS` (default 120 seconds).
+Description and assignee debounce periods are configured with
+`PLANE_DESCRIPTION_DEBOUNCE_SECONDS` and `PLANE_ASSIGNEE_DEBOUNCE_SECONDS`. The
+assignee delay defaults to the configured description delay when omitted.
 
 Do not restore legacy `PMS_*`, mapping-file, or cache-file variables.
 
@@ -97,3 +98,6 @@ environments.
 - Description and assignee updates are independently delivered after their
   configured quiet periods; a newer update of the same type replaces the pending
   notification for that issue.
+- New issue notifications are delivered after a configurable quiet period; any
+  issue update during that period refreshes the pending `Created` notification
+  and restarts the timer so initial setup produces one Zulip message.

@@ -48,6 +48,46 @@ internal sealed class NotificationDebouncer : IDisposable
             cancellation);
     }
 
+    public bool TryReschedulePending(
+        string notificationType,
+        string issueId,
+        string topic,
+        string content,
+        TimeSpan delay)
+    {
+        var key = $"{notificationType}:{issueId}";
+
+        while (_pending.TryGetValue(key, out var existing))
+        {
+            var cancellation = new CancellationTokenSource();
+
+            if (!_pending.TryUpdate(key, cancellation, existing))
+            {
+                cancellation.Dispose();
+                continue;
+            }
+
+            existing.Cancel();
+            existing.Dispose();
+
+            _ = DeliverAfterDelayAsync(
+                key,
+                notificationType,
+                issueId,
+                topic,
+                content,
+                delay,
+                cancellation);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    public bool IsPending(string notificationType, string issueId) =>
+        _pending.ContainsKey($"{notificationType}:{issueId}");
+
     public void Dispose()
     {
         foreach (var cancellation in _pending.Values)
