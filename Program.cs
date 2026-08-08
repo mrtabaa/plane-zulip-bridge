@@ -29,8 +29,9 @@ var webhookToken = BridgeConfiguration.Required("WEBHOOK_TOKEN");
 var planeApiUrl = BridgeConfiguration.Required("PLANE_API_URL");
 var planeApiKey = BridgeConfiguration.Required("PLANE_API_KEY");
 var planeWorkspaceSlug = BridgeConfiguration.Required("PLANE_WORKSPACE_SLUG");
-var planeTaskUrlTemplate = BridgeConfiguration.Required(
-    "PLANE_TASK_URL_TEMPLATE");
+var planeTaskUrlTemplate = BridgeConfiguration.ExpandTaskUrlTemplate(
+    BridgeConfiguration.Required("PLANE_TASK_URL_TEMPLATE"),
+    planeWorkspaceSlug);
 
 var app = builder.Build();
 var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();

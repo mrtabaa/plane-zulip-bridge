@@ -33,7 +33,7 @@ Required variables:
 PLANE_API_URL=http://plane-api:8000
 PLANE_API_KEY=plane_api_REPLACE_ME
 PLANE_WORKSPACE_SLUG=team
-PLANE_TASK_URL_TEMPLATE=https://pms.example.com/team/browse/{projectIdentifier}-{sequenceId}/
+PLANE_TASK_URL_TEMPLATE=https://pms.example.com/{PLANE_WORKSPACE_SLUG}/browse/{projectIdentifier}-{sequenceId}/
 
 ZULIP_URL=https://zulip.example.com
 ZULIP_BOT_EMAIL=plane-bot@zulip.example.com
@@ -54,7 +54,8 @@ Do not restore legacy `PMS_*`, mapping-file, or cache-file variables.
 
 - One bridge instance handles one workspace selected by `PLANE_WORKSPACE_SLUG`.
 - Configure Plane with `https://<bridge-host>/plane/<WEBHOOK_TOKEN>`.
-- Task links replace `{projectIdentifier}` and `{sequenceId}`.
+- Task links replace `{PLANE_WORKSPACE_SLUG}`, `{projectIdentifier}`, and
+  `{sequenceId}`.
 
 ## Security and logging
 

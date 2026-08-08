@@ -13,6 +13,14 @@ internal static class BridgeConfiguration
         return value;
     }
 
+    public static string ExpandTaskUrlTemplate(
+        string template,
+        string workspaceSlug) =>
+        template.Replace(
+            "{PLANE_WORKSPACE_SLUG}",
+            Uri.EscapeDataString(workspaceSlug),
+            StringComparison.OrdinalIgnoreCase);
+
     public static void LoadDotEnv(string fileName = ".env")
     {
         var paths = new[]

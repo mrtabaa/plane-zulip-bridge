@@ -50,7 +50,7 @@ Create `.env` without committing real credentials:
 PLANE_API_URL=http://plane-api:8000
 PLANE_API_KEY=plane_api_REPLACE_ME
 PLANE_WORKSPACE_SLUG=team
-PLANE_TASK_URL_TEMPLATE=https://pms.example.com/team/browse/{projectIdentifier}-{sequenceId}/
+PLANE_TASK_URL_TEMPLATE=https://pms.example.com/{PLANE_WORKSPACE_SLUG}/browse/{projectIdentifier}-{sequenceId}/
 
 ZULIP_URL=https://zulip.example.com
 ZULIP_BOT_EMAIL=plane-bot@zulip.example.com
@@ -62,8 +62,9 @@ WEBHOOK_TOKEN=REPLACE_WITH_A_LONG_RANDOM_VALUE
 
 All variables above are required. `PLANE_TASK_URL_TEMPLATE` should contain the
 `{projectIdentifier}` and `{sequenceId}` placeholders used to build work-item
-links. `PLANE_API_URL` should point to the Plane API origin; `ZULIP_CHANNEL` is
-the destination stream name.
+links. It may also contain `{PLANE_WORKSPACE_SLUG}`, which is replaced with the
+configured workspace slug. `PLANE_API_URL` should point to the Plane API origin;
+`ZULIP_CHANNEL` is the destination stream name.
 
 ### Notification settings
 
